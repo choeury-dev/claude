@@ -14,15 +14,17 @@ const HELP = `
   /suggest                  미분류 메모의 추천 카테고리
   /accept <이름>            추천 받아들이기     예) /accept 할 일
   /move <id> <카테고리>      메모 옮기기(+학습)
+  /again                    방금 '이미 등록됨'으로 건너뛴 항목을 그래도 추가
   /done <id>  /rm <id>      완료 처리 / 삭제
   /reset                    전부 지우기
   /help  /quit`;
 
 const short = (id) => id.slice(-6);
+let lastDupes = []; // 바로 전에 중복으로 건너뛴 항목 (/again 으로 그래도 추가)
 
 function printCaptured(results) {
   for (const { memo, category, why, duplicate } of results) {
-    if (duplicate) { console.log(`  = [${category}] ${memo.text}   ← 이미 있어서 건너뜀  #${short(memo.id)}`); continue; }
+    if (duplicate) { console.log(`  = 이미 '${category}'에 등록된 기록입니다: ${memo.text}   (그래도 추가: /again)`); continue; }
     const extra = memo.suggestedCategory ? `  (추천: ${memo.suggestedCategory})` : '';
     console.log(`  ✓ [${category}] ${memo.text}${extra}   ← ${why}  #${short(memo.id)}`);
   }
@@ -47,7 +49,11 @@ function resolveId(state, s) {
 export function run(state, line) {
   line = line.trim();
   if (!line) return;
-  if (!line.startsWith('/')) return printCaptured(E.capture(state, line));
+  if (!line.startsWith('/')) {
+    const results = E.capture(state, line);
+    lastDupes = results.filter((r) => r.duplicate).map((r) => ({ text: r.memo.text, category: r.category }));
+    return printCaptured(results);
+  }
 
   const [cmd, ...rest] = line.slice(1).split(/\s+/);
   const arg = rest.join(' ');
@@ -82,6 +88,12 @@ export function run(state, line) {
       const [id, ...name] = rest;
       const { memo, category } = E.moveMemo(state, resolveId(state, id), name.join(' '));
       return console.log(`  "${memo.text}" → ${category.name} (다음부터 자동 분류)`);
+    }
+    case 'again': {
+      if (!lastDupes.length) return console.log('  다시 추가할 항목이 없습니다.');
+      for (const d of lastDupes) console.log(`  ✓ [${E.addMemo(state, d.text, d.category).category}] ${d.text}  (중복 추가)`);
+      lastDupes = [];
+      return;
     }
     case 'done': return console.log(`  완료: ${E.setDone(state, resolveId(state, arg)).text}`);
     case 'rm': return console.log(`  삭제: ${E.removeMemo(state, resolveId(state, arg)).text}`);

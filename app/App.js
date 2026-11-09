@@ -34,6 +34,7 @@ function Main() {
   const [input, setInput] = useState('');
   const [filter, setFilter] = useState(null); // null = 전체, 아니면 카테고리 이름
   const [toast, setToast] = useState(null);
+  const [dupes, setDupes] = useState([]); // 이미 등록된 기록 안내: [{ text, category }]
   const [moving, setMoving] = useState(null); // 옮길 메모
   const [addingCategory, setAddingCategory] = useState(false);
   const toastTimer = useRef(null);
@@ -54,7 +55,10 @@ function Main() {
     if (!text) return;
     const results = m.capture(text);
     setInput('');
-    showToast(results);
+    const added = results.filter((r) => !r.duplicate);
+    setDupes(results.filter((r) => r.duplicate).map((r) => ({ text: r.memo.text, category: r.category })));
+    if (added.length) showToast(added);
+    else setToast(null);
   }
 
   if (!m.ready) {
@@ -145,7 +149,13 @@ function Main() {
           })}
         </ScrollView>
 
-        {toast && <CaptureToast s={s} results={toast} />}
+        {toast && !dupes.length && <CaptureToast s={s} results={toast} />}
+
+        {dupes.length > 0 && (
+          <DuplicateNotice s={s} dupes={dupes}
+            onAdd={() => { const items = dupes; setDupes([]); showToast(items.map((d) => m.addMemo(d.text, d.category))); }}
+            onClose={() => setDupes([])} />
+        )}
 
         <SafeAreaView edges={['bottom']} style={s.inputBar}>
           <TextInput
@@ -196,14 +206,40 @@ function MemoRow({ s, memo, onToggle, onPress }) {
   );
 }
 
+function byCategory(list, textOf) {
+  const out = new Map();
+  for (const x of list) {
+    if (!out.has(x.category)) out.set(x.category, []);
+    out.get(x.category).push(textOf(x));
+  }
+  return out;
+}
+
+function DuplicateNotice({ s, dupes, onAdd, onClose }) {
+  const groups = [...byCategory(dupes, (d) => d.text)];
+  return (
+    <View style={s.notice} accessibilityRole="alert">
+      {groups.map(([cat, items]) => (
+        <Text key={cat} style={s.noticeText}>
+          이미 <Text style={{ fontWeight: '700' }}>'{cat}'</Text>에 등록된 기록입니다: {items.join(', ')}
+        </Text>
+      ))}
+      <Text style={s.mutedSmall}>추가하려면 추가를 눌러 주세요.</Text>
+      <View style={[s.row, { gap: 8, marginTop: 10 }]}>
+        <Pressable style={s.btnPrimary} onPress={onAdd}>
+          <Text style={s.btnPrimaryText}>추가</Text>
+        </Pressable>
+        <Pressable style={s.btnSecondary} onPress={onClose}>
+          <Text style={s.btnSecondaryText}>닫기</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 function CaptureToast({ s, results }) {
   // 카테고리별로 묶어서 "살 것 ← 리무버, 케찹" 형태로 보여준다
-  const byCat = new Map();
-  for (const r of results) {
-    const key = r.category;
-    if (!byCat.has(key)) byCat.set(key, []);
-    byCat.get(key).push(r.duplicate ? `${r.memo.text}(이미 있음)` : r.memo.text);
-  }
+  const byCat = byCategory(results, (r) => r.memo.text);
   return (
     <View style={s.toast} pointerEvents="none">
       {[...byCat].map(([cat, items]) => (
@@ -317,6 +353,8 @@ function makeStyles(c) {
     btnPrimaryText: { color: c.accentText, fontWeight: '700', fontSize: 15 },
     btnSecondary: { minHeight: 40, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surface },
     btnSecondaryText: { color: c.text, fontSize: 15 },
+    notice: { marginHorizontal: 12, marginBottom: 8, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: c.accent, backgroundColor: c.suggest },
+    noticeText: { fontSize: 15, color: c.text, lineHeight: 21 },
     toast: { position: 'absolute', left: 16, right: 16, bottom: 90, backgroundColor: c.dark ? '#2C2C2C' : '#1C1B1A', borderRadius: 12, padding: 12, gap: 4 },
     toastText: { color: '#FFFFFF', fontSize: 15 },
     backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },

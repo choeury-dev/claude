@@ -84,3 +84,56 @@ test('같은 카테고리의 안 끝난 같은 항목은 중복으로 만들지 
   assert.equal(r.duplicate, true);
   assert.equal(s.memos.length, 1);
 });
+
+test('띄어쓰기만 있어도 낱말이 모두 아는 단어면 나눈다 (음성 받아쓰기 대응)', () => {
+  const s = E.createState();
+  E.addCategory(s, '살 것');
+  assert.deepEqual(names(s, E.capture(s, '리무버 케찹')), [['리무버', '살 것'], ['케찹', '살 것']]);
+  assert.deepEqual(names(s, E.capture(s, '우유 양배추 두부 사야 돼')), [['우유', '살 것'], ['양배추', '살 것'], ['두부', '살 것']]);
+});
+
+test('모르는 낱말이 섞이면 띄어쓰기로 나누지 않는다', () => {
+  const s = E.createState();
+  E.addCategory(s, '살 것');
+  assert.deepEqual(E.capture(s, '모나미 볼펜').map((r) => r.memo.text), ['모나미 볼펜']);
+  assert.deepEqual(E.capture(s, '유기농 케찹').map((r) => r.memo.text), ['유기농 케찹']);
+});
+
+test('학습한 여러 낱말 이름은 통째로 유지된다', () => {
+  const s = E.createState();
+  const [r] = E.capture(s, '모나미 볼펜');
+  E.moveMemo(s, r.memo.id, '문구');
+  E.setDone(s, r.memo.id);
+  assert.deepEqual(names(s, E.capture(s, '모나미 볼펜')), [['모나미 볼펜', '문구']]);
+});
+
+test('양배추는 살 것', () => {
+  const s = E.createState();
+  E.addCategory(s, '살 것');
+  assert.equal(E.capture(s, '양배추')[0].category, '살 것');
+});
+
+test('이미 있는 기록은 중복으로 알려 주고, addMemo 로 그래도 추가할 수 있다', () => {
+  const s = E.createState();
+  E.addCategory(s, '살 것');
+  E.capture(s, '케찹');
+  const [r] = E.capture(s, '케찹');
+  assert.equal(r.duplicate, true);
+  assert.equal(r.category, '살 것');
+  E.addMemo(s, '케찹', r.category);
+  assert.equal(E.grouped(s).get('살 것').length, 2);
+});
+
+test('미분류에 있는 같은 기록도 중복으로 알려 준다', () => {
+  const s = E.createState();
+  E.capture(s, '모나미 볼펜');
+  assert.equal(E.capture(s, '모나미 볼펜')[0].duplicate, true);
+});
+
+test('완료한 기록은 다시 말하면 새로 추가된다', () => {
+  const s = E.createState();
+  E.addCategory(s, '살 것');
+  const [r] = E.capture(s, '케찹');
+  E.setDone(s, r.memo.id);
+  assert.notEqual(E.capture(s, '케찹')[0].duplicate, true);
+});

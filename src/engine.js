@@ -124,7 +124,7 @@ function allTriggers(state) {
  * @returns {Array<object>} 새로 만든 메모 + 분류 근거
  */
 export function capture(state, raw, { source = 'text', now = new Date() } = {}) {
-  const parsed = parseUtterance(raw, allTriggers(state));
+  const parsed = parseUtterance(raw, allTriggers(state), { isKnown: (t) => isKnownItem(state, t) });
   const captureId = makeId('cap');
   const created = [];
 
@@ -136,30 +136,65 @@ export function capture(state, raw, { source = 'text', now = new Date() } = {}) 
     // 사용자가 직접 말한 경우(명시/트리거)에는 이 단어를 학습해 다음엔 트리거 없이도 분류한다
     if (category && (r.reason === 'explicit' || r.reason === 'trigger')) learnKeyword(state, category, item);
 
-    // 같은 카테고리에 아직 안 끝낸 같은 항목이 있으면 새로 만들지 않는다 (장보기 목록 중복 방지)
-    const dup = category && state.memos.find((m) => !m.done && m.categoryId === category.id && normalize(m.text) === normalize(item));
+    // 같은 카테고리(미분류 포함)에 아직 안 끝낸 같은 항목이 있으면 새로 만들지 않고 알려 준다.
+    // 사용자가 그래도 추가하려면 addMemo 로 넣는다.
+    const categoryId = category?.id ?? null;
+    const dup = findOpenDuplicate(state, item, categoryId);
     if (dup) {
-      created.push({ memo: dup, category: category.name, why: '이미 있음', duplicate: true });
+      created.push({ memo: dup, category: category?.name ?? UNCATEGORIZED, why: '이미 등록된 기록', duplicate: true });
       continue;
     }
 
-    const memo = {
-      id: makeId('m'),
-      captureId,
-      text: item,
-      raw,
-      categoryId: category?.id ?? null,
-      suggestedCategory: category ? null : r.suggested ?? null,
-      reason: r.reason,
-      confidence: r.confidence,
-      source,
-      done: false,
-      createdAt: now.toISOString(),
-    };
+    const memo = newMemo({ text: item, raw, captureId, categoryId, source, now });
+    memo.suggestedCategory = category ? null : r.suggested ?? null;
+    memo.reason = r.reason;
+    memo.confidence = r.confidence;
     state.memos.push(memo);
     created.push({ memo, category: category?.name ?? UNCATEGORIZED, why: r.why });
   }
   return created;
+}
+
+function newMemo({ text, raw, captureId, categoryId, source, now }) {
+  return {
+    id: makeId('m'),
+    captureId: captureId ?? makeId('cap'),
+    text,
+    raw: raw ?? text,
+    categoryId,
+    suggestedCategory: null,
+    reason: 'manual',
+    confidence: 'high',
+    source,
+    done: false,
+    createdAt: now.toISOString(),
+  };
+}
+
+/** 같은 카테고리에서 아직 완료하지 않은 같은 항목 (완료한 건 다시 사야 할 수 있으니 중복으로 보지 않는다) */
+export function findOpenDuplicate(state, text, categoryId) {
+  const n = normalize(text);
+  return state.memos.find((m) => !m.done && m.categoryId === categoryId && normalize(m.text) === n) ?? null;
+}
+
+/**
+ * 분류 없이 지정한 카테고리에 바로 넣는다. 중복 안내 후 "추가"를 눌렀을 때 쓴다.
+ * @param {string|null} categoryNameToUse null 또는 '미분류' 면 미분류
+ */
+export function addMemo(state, text, categoryNameToUse, { source = 'text', now = new Date() } = {}) {
+  const cat = !categoryNameToUse || categoryNameToUse === UNCATEGORIZED ? null : addCategory(state, categoryNameToUse, { now });
+  const memo = newMemo({ text: text.trim(), categoryId: cat?.id ?? null, source, now });
+  state.memos.push(memo);
+  return { memo, category: cat?.name ?? UNCATEGORIZED };
+}
+
+const HINT_KEYWORDS = new Set(HINTS.flatMap((h) => h.keywords.map(normalize)));
+
+/** 이 단어(구)를 이미 아는가: 사용자가 학습시킨 단어이거나 내장 사전에 있는 단어. 띄어쓰기로 나눌지 판단할 때 쓴다. */
+export function isKnownItem(state, text) {
+  const n = normalize(text);
+  if (!n) return false;
+  return HINT_KEYWORDS.has(n) || state.categories.some((c) => c.keywords.includes(n));
 }
 
 // ── 조회·정리 ───────────────────────────────────────────────

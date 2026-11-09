@@ -36,6 +36,7 @@ export function useModeora() {
     version,
     state: stateRef.current,
     capture: (text, source = 'text') => act((s) => E.capture(s, text, { source })),
+    addMemo: (text, categoryName) => act((s) => E.addMemo(s, text, categoryName)),
     addCategory: (name, triggers = []) => act((s) => E.addCategory(s, name, { triggers })),
     moveMemo: (id, categoryName) => act((s) => E.moveMemo(s, id, categoryName)),
     acceptSuggestion: (name) => act((s) => E.acceptSuggestion(s, name)),
