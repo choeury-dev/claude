@@ -1,0 +1,13 @@
+{
+  "name": "modeora",
+  "version": "0.1.0",
+  "description": "모더라 - 말하면 기록과 분류를 동시에 해주는 메모 앱 (1단계: 텍스트 프로토타입)",
+  "type": "module",
+  "bin": { "modeora": "src/cli.js" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "cli": "node src/cli.js"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
