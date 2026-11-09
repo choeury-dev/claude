@@ -57,8 +57,10 @@ export function parseUtterance(raw, triggers = []) {
   text = whole.text;
   let trigger = whole.trigger;
 
+  // "~이랑 ", "~하고 " 는 쉼표로 바꾼 뒤 나눈다 (Hermes 호환을 위해 lookbehind 미사용)
   const segments = text
-    .split(/[.,，、\n;]+|\s+그리고\s+|(?<=\S)(?:이랑|하고)\s+/)
+    .replace(/(\S)(이랑|하고)\s+/g, '$1, ')
+    .split(/[.,，、\n;]+|\s+그리고\s+/)
     .map((s) => s.trim())
     .filter(Boolean);
 
