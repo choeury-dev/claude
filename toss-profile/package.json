@@ -1,0 +1,25 @@
+{
+  "name": "hyodo-profile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "효도 프사 - 6070 세대용 프로필 사진 생성 토스 미니앱 (앱인토스 WebView)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "server": "node server/index.js",
+    "build": "vite build",
+    "ait:build": "ait build",
+    "test": "node --test test/*.test.js",
+    "revenue": "node scripts/revenue.js"
+  },
+  "dependencies": {
+    "@apps-in-toss/web-framework": "3.10.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.0"
+  },
+  "license": "UNLICENSED"
+}
