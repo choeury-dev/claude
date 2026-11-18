@@ -68,6 +68,9 @@ export function textureDefs(texture) {
   return f + paper + IMAGE_FILTERS;
 }
 
+// 한 가지 질감 필터 정의만 (컷 테두리 선처럼 따로 고른 질감에 쓴다)
+export function filterDef(texture) { return FILTERS[texture] || ''; }
+
 export function textureFilterAttr(texture) {
   return FILTERS[texture] ? ` filter="url(#tex-${texture})"` : '';
 }

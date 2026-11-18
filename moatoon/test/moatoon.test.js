@@ -234,3 +234,16 @@ test('질감 필터와 이미지 변형 SVG에 같은 속성이 두 번 들어�
     assert.ok(c.x >= 0 && c.y >= 0 && c.x + c.w <= 400 && c.y + c.h <= 600, `${crop} 자르기가 원본 안`);
   }
 });
+
+test('컷 테두리 선 질감·굵기·색이 그림 질감과 따로 들어간다', async () => {
+  const { buildPages } = await import('../js/pages.js');
+  const { renderPage } = await import('../js/render.js');
+  const { withDefaults } = await import('../js/catalog.js');
+  const s = withDefaults({ texture: 'watercolor', border: { texture: 'pen', width: 7, color: '#334455' } });
+  const res = buildPages(parseScript(EP), s, [], [], measure);
+  const { inner } = renderPage(res.pages[1], { project: res, settings: s, assets: {}, index: 1, total: 4, opts: {} });
+  assert.match(inner, /id="tex-watercolor"/);
+  assert.match(inner, /id="tex-pen"/);
+  assert.match(inner, /stroke="#334455" stroke-width="7" filter="url\(#tex-pen\)"/);
+  assert.equal(withDefaults({}).border.texture, 'clean', '예전 설정에도 기본값이 채워짐');
+});

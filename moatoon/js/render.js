@@ -1,7 +1,7 @@
 // 프로젝트를 SVG 문자열로 그린다. 편집 화면과 이미지 내보내기가 같은 함수를 쓴다.
 
 import { FIGURE, figureScale, headBox, characterBox, bubbleRole, titleHeight } from './layout.js';
-import { textureDefs, textureFilterAttr, hasPaper } from './texture.js';
+import { textureDefs, textureFilterAttr, hasPaper, filterDef } from './texture.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f1 = (n) => Math.round(n * 10) / 10;
@@ -441,7 +441,9 @@ export function renderPage(page, ctx) {
   const opts = ctx.opts || {};
   const W = settings.width, H = settings.height;
   const tex = opts.fast ? '' : textureFilterAttr(settings.texture);
-  const parts = [`<defs>${textureDefs(opts.fast ? 'clean' : settings.texture)}</defs>`];
+  const border = settings.border || { texture: 'clean', width: 4, color: '#1b1f2a' };
+  const borderTex = opts.fast || border.texture === settings.texture ? '' : filterDef(border.texture);
+  const parts = [`<defs>${textureDefs(opts.fast ? 'clean' : settings.texture)}${borderTex}</defs>`];
   parts.push(`<rect class="page-bg" x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`);
   const tH = page.showTitle ? titleHeight(settings, !!project.title) : 0;
   if (tH) {
@@ -468,7 +470,7 @@ export function renderPage(page, ctx) {
     }
     parts.push('</g>');
     for (const it of p.items) if (it.type === 'bubble') parts.push(drawBubble(it, p, settings, opts));
-    parts.push(`<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="none" stroke="#1b1f2a" stroke-width="4" pointer-events="none"/>`);
+    parts.push(`<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="none" stroke="${esc(border.color)}" stroke-width="${border.width}"${opts.fast ? '' : textureFilterAttr(border.texture)} pointer-events="none"/>`);
     if (opts.guides) parts.push(`<text class="guide-label" x="${p.x + 10}" y="${p.y + p.h - 10}" font-size="16" fill="#98a2b3" font-family="IBM Plex Sans KR, sans-serif" pointer-events="none">${i + 1}컷</text>`);
     parts.push('</g>');
   });

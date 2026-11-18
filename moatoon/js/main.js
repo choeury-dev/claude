@@ -8,7 +8,7 @@ import {
   defaultCharSize, groundY, layoutRows, bubbleRole, layoutText, MIN_BUBBLE, computePanels, headBox,
 } from './layout.js';
 import { renderPage, face, figure, drawImageFigure, entryCrop, entryHead, pickEntry, drawMarks } from './render.js';
-import { textureDefs, textureFilterAttr } from './texture.js';
+import { textureDefs, textureFilterAttr, filterDef } from './texture.js';
 import { checkLine } from './spell.js';
 import { aiCheck, aiCharacterGuide, basicGuide, describeError } from './ai.js';
 import * as store from './store.js';
@@ -1445,6 +1445,11 @@ function sideSettings() {
     <div class="group"><h3>질감 표현</h3>
     <div class="choices">${TEXTURES.map((t) => `<button class="choice" data-texture="${t.id}" aria-pressed="${s.texture === t.id}">${textureSample(t.id)}${t.label}<small>${t.note}</small></button>`).join('')}</div>
     <p class="hint" style="margin-top:6px">배경·인물·업로드 이미지에 입히고 글자에는 입히지 않습니다. 내보낸 PNG에도 같이 들어갑니다.</p>
+    <h3>컷 테두리 선</h3>
+    <div class="choices">${TEXTURES.map((t) => `<button class="choice" data-btex="${t.id}" aria-pressed="${(s.border.texture) === t.id}"><svg viewBox="0 0 100 64" aria-hidden="true"><defs>${filterDef(t.id)}</defs><rect x="10" y="10" width="80" height="44" fill="none" stroke="${esc(s.border.color)}" stroke-width="${Math.max(2, s.border.width)}"${textureFilterAttr(t.id)}/></svg>${t.label}</button>`).join('')}</div>
+    ${slider('bw', '선 굵기', s.border.width, 1, 16)}
+    <div class="kv"><label for="border-color">선 색</label><input id="border-color" type="color" data-border="color" value="${esc(s.border.color)}"><span></span></div>
+    <p class="hint">그림 질감과 따로 고를 수 있습니다. 예) 그림은 수채화, 테두리는 펜.</p>
     <h3>가이드 인물 모양</h3>
     <div class="choices">${STYLES.map((st) => `<button class="choice" data-style="${st.id}" aria-pressed="${s.style === st.id}">${st.label}</button>`).join('')}</div></div>
     <div class="group"><h3>폰트</h3><div id="font-rows">${fontRowsHTML()}</div></div>
@@ -1491,13 +1496,14 @@ function bindSide() {
     const t = e.target;
     if (t.id === 'script-text') { app.ep.script = t.value; renderScriptPreview(); save(); return; }
     if (t.dataset.set) {
-      const map = { per: 'panelsPerPage', margin: 'margin', gutter: 'gutter', 'wm-dx': 'watermark.dx', 'wm-dy': 'watermark.dy', 'wm-size': 'watermark.size', 'wm-opacity': 'watermark.opacity', 'pn-dx': 'pageNumber.dx', 'pn-dy': 'pageNumber.dy', 'pn-size': 'pageNumber.size', 'pn-opacity': 'pageNumber.opacity' };
+      const map = { bw: 'border.width', per: 'panelsPerPage', margin: 'margin', gutter: 'gutter', 'wm-dx': 'watermark.dx', 'wm-dy': 'watermark.dy', 'wm-size': 'watermark.size', 'wm-opacity': 'watermark.opacity', 'pn-dx': 'pageNumber.dx', 'pn-dy': 'pageNumber.dy', 'pn-size': 'pageNumber.size', 'pn-opacity': 'pageNumber.opacity' };
       const key = map[t.dataset.set];
       const v = Number(t.value);
       setSetting(key, v, { geometry: ['margin', 'gutter', 'panelsPerPage'].includes(key), rerenderSide: false });
       const out = $(`#out-${t.dataset.set}`);
       if (out) out.textContent = key.endsWith('opacity') ? `${Math.round(v * 100)}%` : `${v}${key === 'panelsPerPage' ? '컷' : 'px'}`;
       if (key.startsWith('watermark') || key.startsWith('pageNumber')) { $('.mark-preview svg').outerHTML = markPreview(); redrawAllMarks(); }
+      if (key === 'border.width') redrawAllMarks();
       return;
     }
     if (t.dataset.wm === 'text') { S().watermark.text = t.value; $('.mark-preview svg').outerHTML = markPreview(); redrawAllMarks(); save(); return; }
@@ -1520,6 +1526,7 @@ function bindSide() {
     }
     if (t.dataset.wm && t.dataset.wm !== 'text') { setSetting(`watermark.${t.dataset.wm}`, t.type === 'checkbox' ? t.checked : t.value); redrawAllMarks(); return; }
     if (t.dataset.pn) { setSetting(`pageNumber.${t.dataset.pn}`, t.type === 'checkbox' ? t.checked : t.value); redrawAllMarks(); return; }
+    if (t.dataset.border) { setSetting('border.color', t.value); redrawAllMarks(); return; }
     if (t.dataset.ptpl) { setSetting(`pageTemplates.${t.dataset.ptpl}`, t.value); return; }
     if (t.id === 'api-key') { app.apiKey = t.value.trim(); saveKey(); return; }
     if (t.dataset.side === 'kind') { snapshot(); PG().kind = t.value; renderPages(); renderSide(); renderLayers(); afterChange(); return; }
@@ -1594,6 +1601,7 @@ function bindSide() {
     }
     if (b.dataset.layout) { setSetting('layout', b.dataset.layout, { geometry: true }); return; }
     if (b.dataset.texture) { setSetting('texture', b.dataset.texture); renderPages(); return; }
+    if (b.dataset.btex) { setSetting('border.texture', b.dataset.btex); renderPages(); return; }
     if (b.dataset.style) { setSetting('style', b.dataset.style); refreshCharacterItems(); renderPages(); return; }
     if (b.dataset.anchor) { setSetting(`${b.dataset.anchor === 'wm' ? 'watermark' : 'pageNumber'}.anchor`, b.dataset.v); redrawAllMarks(); return; }
     if (b.dataset.tpl) {

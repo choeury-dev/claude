@@ -155,6 +155,7 @@ export function defaultSettings() {
     watermark: { enabled: true, type: 'text', text: '@my_moatoon', assetId: null, anchor: 'br', dx: 24, dy: 14, size: 20, opacity: 0.55, color: '#1b1f2a', skipCover: false },
     pageNumber: { enabled: true, format: 'n/total', anchor: 'bc', dx: 0, dy: 14, size: 20, opacity: 0.8, color: '#1b1f2a', skipCover: true },
     pageTemplates: { cover: 'builtin-cover', content: 'auto', ending: 'builtin-ending' },
+    border: { texture: 'clean', width: 4, color: '#1b1f2a' }, // 컷 테두리 선
   };
 }
 
@@ -168,5 +169,6 @@ export function withDefaults(saved) {
     watermark: { ...d.watermark, ...(saved.watermark || {}) },
     pageNumber: { ...d.pageNumber, ...(saved.pageNumber || {}) },
     pageTemplates: { ...d.pageTemplates, ...(saved.pageTemplates || {}) },
+    border: { ...d.border, ...(saved.border || {}) },
   };
 }
