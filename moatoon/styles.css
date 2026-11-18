@@ -186,6 +186,9 @@ output { font-variant-numeric: tabular-nums; min-width: 44px; color: var(--muted
 #stage .panel-bg { cursor: pointer; }
 #stage.drop-ok { outline: 3px dashed var(--accent); outline-offset: 4px; }
 #stage .sel-box { fill: none; stroke: #0b7285; stroke-width: 3; stroke-dasharray: 9 6; pointer-events: none; }
+#stage .handle { cursor: nwse-resize; }
+#stage .handle[data-corner="ne"], #stage .handle[data-corner="sw"] { cursor: nesw-resize; }
+#stage .handle-dot { fill: #fff; stroke: #0b7285; }
 #stage .drop-hl { fill: rgba(11,114,133,.08); stroke: #0b7285; stroke-width: 4; pointer-events: none; }
 #stage.no-guides .guide-label { display: none; }
 .toolbar {

@@ -103,9 +103,35 @@ export function wrapText(text, maxW, font, size, measure) {
   return out.length ? out : [''];
 }
 
+// 말풍선 바깥 크기(w, h) 안에서 글자가 들어갈 수 있는 넓이
+function textArea(kind, w, h, size) {
+  if (kind === 'narration') return { tw: w - size * 1.2, th: h - size * 0.9 };
+  if (kind === 'thought') return { tw: (w - 24) * 0.68, th: (h - 20) * 0.62 };
+  if (kind === 'shout') return { tw: (w - 30) * 0.66, th: (h - 28) * 0.6 };
+  return { tw: (w - 14) * 0.74, th: (h - 12) * 0.7 };
+}
+
+export const MIN_BUBBLE = { w: 60, h: 40 };
+
+// 사용자가 모서리를 끌어 크기를 정한 말풍선: 크기는 그대로 두고 글을 그 안에 맞춰 줄바꿈한다.
+// 글이 넘치면 글자 크기만 줄인다(기본 크기보다 키우지는 않는다).
+function fitInBox(item, font, base, measure) {
+  const w = Math.max(MIN_BUBBLE.w, item.w), h = Math.max(MIN_BUBBLE.h, item.h);
+  let size = base, lines;
+  for (let tries = 0; tries < 24; tries++) {
+    const { tw, th } = textArea(item.kind, w, h, size);
+    lines = wrapText(item.text, Math.max(size, tw), font.family, size, measure);
+    const widest = Math.max(0, ...lines.map((l) => measure(l, font.family, size)));
+    if ((lines.length * size * 1.3 <= th && widest <= tw + 1) || size <= 10) break;
+    size = Math.max(10, size * 0.92);
+  }
+  return { w: Math.round(w), h: Math.round(h), lines, fontSize: size };
+}
+
 export function sizeBubble(item, panel, settings, measure) {
   const font = settings.fonts[bubbleRole(item)];
   let size = font.size * (item.kind === 'shout' ? 1.15 : item.kind === 'whisper' ? 0.9 : 1);
+  if (item.manual && item.w && item.h) return fitInBox(item, font, size, measure);
   const maxTextW = Math.min(panel.w * (item.kind === 'narration' ? 0.8 : 0.55), size * 11);
   let lines, textW, textH;
   for (let tries = 0; tries < 6; tries++) {

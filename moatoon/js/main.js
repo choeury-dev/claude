@@ -3,7 +3,7 @@ import {
 } from './catalog.js';
 import { parseScript } from './script.js';
 import {
-  uid, generateProject, sizeBubble, placeBubble, refineCharacter, reflowBubbles, nearestCharacter,
+  uid, generateProject, sizeBubble, MIN_BUBBLE, placeBubble, refineCharacter, reflowBubbles, nearestCharacter,
   characterBox, defaultCharSize, groundY, layoutRows, bubbleRole,
 } from './layout.js';
 import { renderProject, face, figure } from './render.js';
@@ -299,7 +299,7 @@ function renderStage() {
     const it = itemOf(s.id);
     if (it) {
       const b = it.type === 'character' ? characterBox(it, style()) : it;
-      sel = `<rect class="sel-box" x="${b.x - 6}" y="${b.y - 6}" width="${b.w + 12}" height="${b.h + 12}" rx="8"/>`;
+      sel = `<rect class="sel-box" x="${b.x - 6}" y="${b.y - 6}" width="${b.w + 12}" height="${b.h + 12}" rx="8"/>` + handlesSVG(b);
     } else state.selected = null;
   } else if (s && s.kind === 'panel') {
     const p = P().panels.find((x) => x.id === s.id);
@@ -310,6 +310,51 @@ function renderStage() {
   const nb = P().panels.reduce((a, p) => a + p.items.filter((i) => i.type === 'bubble').length, 0);
   $('#stage-info').textContent = `${width} × ${height}px · ${P().panels.length}컷 · 말풍선 ${nb}개 · 그림체 ${STYLES.find((x) => x.id === style()).label}`;
   renderToolbar();
+}
+
+// 선택 상자 네 모서리의 크기 조절 손잡이. 화면에서 늘 같은 크기로 보이게 캔버스 배율로 나눈다.
+const CORNERS = { nw: [0, 0], ne: [1, 0], sw: [0, 1], se: [1, 1] };
+function stageScale() {
+  const w = $('#stage').getBoundingClientRect().width;
+  return w ? w / state.settings.width : 1;
+}
+function handlesSVG(b) {
+  const k = stageScale();
+  const s = 14 / k, hit = 28 / k;
+  return Object.entries(CORNERS).map(([c, [fx, fy]]) => {
+    const x = b.x - 6 + (b.w + 12) * fx, y = b.y - 6 + (b.h + 12) * fy;
+    return `<g class="handle" data-corner="${c}"><rect x="${x - hit / 2}" y="${y - hit / 2}" width="${hit}" height="${hit}" fill="transparent"/><rect class="handle-dot" x="${x - s / 2}" y="${y - s / 2}" width="${s}" height="${s}" rx="${s * 0.2}" stroke-width="${2 / k}"/></g>`;
+  }).join('');
+}
+
+// 모서리를 끄는 동안: 반대쪽 모서리를 고정점으로 크기를 바꾼다.
+function resizeTo(r, pt, keepRatio) {
+  const it = itemOf(r.id);
+  const panel = panelOf(r.id);
+  const [fx, fy] = CORNERS[r.corner];
+  const ax = r.box.x + r.box.w * (1 - fx), ay = r.box.y + r.box.h * (1 - fy); // 고정점
+  if (it.type === 'character') {
+    // 인물은 비율을 지키며 키운다. 끄는 거리 중 더 많이 움직인 쪽을 따른다.
+    const k = Math.max(Math.abs(pt.x - ax) / r.box.w, Math.abs(pt.y - ay) / r.box.h);
+    const h = Math.max(30, r.box.h * k);
+    const scale = h / r.box.h;
+    it.size = Math.round(Math.max(30, r.size * scale));
+    const nb = characterBox(it, style());
+    const left = fx ? ax : ax - nb.w, top = fy ? ay : ay - nb.h;
+    it.x = Math.round(left + nb.w / 2);
+    it.y = Math.round(top + nb.h);
+  } else {
+    let w = Math.max(MIN_BUBBLE.w, Math.abs(pt.x - ax)), h = Math.max(MIN_BUBBLE.h, Math.abs(pt.y - ay));
+    if (keepRatio) { const k = Math.max(w / r.box.w, h / r.box.h); w = r.box.w * k; h = r.box.h * k; }
+    // 컷 밖으로는 넘어가지 않게
+    w = Math.min(w, fx ? panel.x + panel.w - ax : ax - panel.x);
+    h = Math.min(h, fy ? panel.y + panel.h - ay : ay - panel.y);
+    it.manual = true;
+    it.w = Math.round(w); it.h = Math.round(h);
+    it.x = Math.round(fx ? ax : ax - it.w);
+    it.y = Math.round(fy ? ay : ay - it.h);
+    Object.assign(it, sizeBubble(it, panel, state.settings, measure));
+  }
 }
 
 function fitStage() {
@@ -354,6 +399,7 @@ function renderToolbar() {
         <select data-act="tail" aria-label="말하는 인물">${opt(targets, it.tailTo || '')}</select>
         <select data-act="role" aria-label="글꼴">${opt(FONT_ROLES, bubbleRole(it))}</select>
         <button class="small" data-act="edit">대사 고치기</button>
+        ${it.manual ? '<button class="small" data-act="autosize" title="글에 맞춰 말풍선 크기를 다시 정함">자동 크기</button>' : ''}
         <button class="small danger" data-act="delete">삭제</button>`;
     }
   } else if (s && s.kind === 'panel') {
@@ -410,6 +456,7 @@ function bindToolbar() {
         if (act === 'kind') { it.kind = value; delete it.fontRole; resizeBubble(it, panel); }
         if (act === 'tail') { it.tailTo = value || null; placeBubble(panel, it, panel.items, style(), { ideal: { x: it.x + it.w / 2, y: it.y + it.h / 2 }, pull: 2 }); }
         if (act === 'role') { it.fontRole = value; resizeBubble(it, panel); }
+        if (act === 'autosize') { delete it.manual; resizeBubble(it, panel); }
         if (act === 'edit') { history.pop(); startInlineEdit(it.id); return; }
       }
       if (act === 'delete') { panel.items = panel.items.filter((o) => o.id !== it.id); for (const o of panel.items) if (o.tailTo === it.id) o.tailTo = null; state.selected = null; }
@@ -495,10 +542,20 @@ function svgPoint(evt) {
 function bindStage() {
   const svg = $('#stage');
   let drag = null;
+  let resize = null;
   svg.addEventListener('pointerdown', (e) => {
     if (!$('#inline-edit').hidden) commitInlineEdit();
-    const g = e.target.closest('.item');
     const pt = svgPoint(e);
+    const h = e.target.closest('.handle');
+    if (h && state.selected?.kind === 'item') {
+      const it = itemOf(state.selected.id);
+      const box = it.type === 'character' ? characterBox(it, style()) : { x: it.x, y: it.y, w: it.w, h: it.h };
+      resize = { id: it.id, corner: h.dataset.corner, box, size: it.size, moved: false };
+      svg.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+    const g = e.target.closest('.item');
     if (g && g.dataset.id === 'title') { state.selected = { kind: 'title', id: 'title' }; renderStage(); return; }
     if (g) {
       const it = itemOf(g.dataset.id);
@@ -515,6 +572,13 @@ function bindStage() {
     renderStage();
   });
   svg.addEventListener('pointermove', (e) => {
+    if (resize) {
+      if (!resize.moved) { snapshot(); resize.moved = true; }
+      resizeTo(resize, svgPoint(e), e.shiftKey);
+      renderStage();
+      $('#toolbar').hidden = true;
+      return;
+    }
     if (!drag) return;
     const pt = svgPoint(e);
     const dx = pt.x - drag.sx, dy = pt.y - drag.sy;
@@ -527,6 +591,15 @@ function bindStage() {
     svg.innerHTML = inner + (target ? `<rect class="drop-hl" x="${target.x}" y="${target.y}" width="${target.w}" height="${target.h}"/>` : '');
   });
   const end = (e) => {
+    if (resize) {
+      const r = resize; resize = null;
+      if (!r.moved) return;
+      const it = itemOf(r.id);
+      if (it.type === 'character') reflowBubbles(panelOf(r.id), style(), state.settings, measure);
+      renderStage(); renderGuide(); save();
+      toast(it.type === 'character' ? '인물 크기를 바꿨습니다.' : '말풍선 크기를 고정했습니다. 글은 안에 맞춰 줄바꿈합니다. (도구 막대의 "자동 크기"로 되돌림)');
+      return;
+    }
     if (!drag) return;
     const d = drag; drag = null;
     if (!d.moved) { renderStage(); return; }

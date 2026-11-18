@@ -124,3 +124,19 @@ test('읽는 순서: 같은 컷에서 뒤 대사가 앞 대사보다 위로 올�
     for (let i = 1; i < bs.length; i++) assert.ok(bs[i].y >= bs[i - 1].y - 4, `${bs[i].text} 이(가) ${bs[i - 1].text} 보다 위`);
   }
 });
+
+test('모서리로 크기를 정한 말풍선은 크기를 지키고 글을 그 안에 맞춘다', async () => {
+  const { sizeBubble } = await import('../js/layout.js');
+  const s = defaultSettings();
+  const [panel] = computePanels(s, 'v3', false);
+  const text = '오늘 커피는 내가 살게! 대신 내일은 네가 사';
+  const auto = sizeBubble({ kind: 'speech', text }, panel, s, measure);
+  const narrow = sizeBubble({ kind: 'speech', text, manual: true, w: 200, h: 220 }, panel, s, measure);
+  assert.equal(narrow.w, 200);
+  assert.equal(narrow.h, 220);
+  assert.ok(narrow.lines.length > auto.lines.length, '좁히면 줄이 늘어나야 함');
+  const tiny = sizeBubble({ kind: 'speech', text, manual: true, w: 120, h: 60 }, panel, s, measure);
+  assert.ok(tiny.fontSize < s.fonts.dialogue.size, '넘치면 글자가 작아져야 함');
+  const big = sizeBubble({ kind: 'speech', text, manual: true, w: 900, h: 300 }, panel, s, measure);
+  assert.equal(big.fontSize, s.fonts.dialogue.size, '넓혀도 기본 글자 크기보다 커지지 않음');
+});
