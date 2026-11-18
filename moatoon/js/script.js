@@ -11,6 +11,7 @@ import {
   EMOTIONS, ACTIONS, BACKGROUNDS, NIGHT_WORDS,
   MONOLOGUE_WORDS, SHOUT_WORDS, WHISPER_WORDS,
 } from './catalog.js';
+import { isPageScript, parseEpisode } from './episode.js';
 
 const SCENE_RE = /^(?:#|장면|씬|S#)\s*\d*\s*[.:：)\]-]?\s*(.*)$/;
 const TITLE_RE = /^제목\s*[:：]\s*(.+)$/;
@@ -65,6 +66,8 @@ function newScene(desc) {
 }
 
 export function parseScript(text, knownNames = []) {
+  // "1페이지 · 표지" 같은 페이지형 제작 대본은 따로 해석한다(episode.js)
+  if (isPageScript(text)) return parseEpisode(text, knownNames);
   const out = { title: '', episode: '', subtitle: '', summary: [], closing: '', scenes: [], characters: [], warnings: [] };
   let section = 'content'; // [마지막] 다음 줄은 요약으로 본다
   const names = new Set(knownNames);

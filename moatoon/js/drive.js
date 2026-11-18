@@ -22,7 +22,7 @@ function loadGsi() {
     const s = document.createElement('script');
     s.src = GSI; s.async = true;
     s.onload = () => resolve();
-    s.onerror = () => reject(new Error('Google 로그인 스크립트를 불러오지 못했습니다. 인터넷 연결이나 차단 설정을 확인해 주세요.'));
+    s.onerror = () => reject(Object.assign(new Error('Google 로그인 스크립트를 불러오지 못했습니다.'), { code: 'script' }));
     document.head.appendChild(s);
   });
 }
@@ -37,12 +37,12 @@ export async function connect(clientId) {
       client_id: clientId,
       scope: SCOPE,
       callback: (resp) => {
-        if (resp.error) { reject(new Error(`Google 로그인 실패: ${resp.error}`)); return; }
+        if (resp.error) { reject(Object.assign(new Error(`Google 로그인 실패: ${resp.error}`), { code: resp.error === 'access_denied' ? 'denied' : 'login' })); return; }
         token = resp.access_token;
         tokenExp = Date.now() + (Number(resp.expires_in || 3600) - 60) * 1000;
         resolve();
       },
-      error_callback: (err) => reject(new Error(err && err.type === 'popup_closed' ? '로그인 창이 닫혔습니다.' : '로그인 창을 열지 못했습니다. 팝업 차단을 확인해 주세요.')),
+      error_callback: (err) => reject(Object.assign(new Error(err && err.type === 'popup_closed' ? '로그인 창이 닫혔습니다.' : '로그인 창을 열지 못했습니다. 팝업 차단을 확인해 주세요.'), { code: err && err.type === 'popup_closed' ? 'closed' : 'popup' })),
     });
     client.requestAccessToken({ prompt: token ? '' : 'consent' });
   });

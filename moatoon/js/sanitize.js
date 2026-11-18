@@ -166,3 +166,16 @@ export function sanitizeEpisode(ep) {
     updated: num(ep.updated, 0, 1e14, Date.now()),
   };
 }
+
+// 레이아웃 파일(.json)을 올릴 때: 좌표는 0~1 비율, 고르는 값은 목록 안에서만
+export function sanitizeTemplate(t, newId) {
+  if (!t || typeof t !== 'object') return null;
+  const fr = (r) => ({ x: num(r.x, 0, 1, 0), y: num(r.y, 0, 1, 0), w: num(r.w, 0.01, 1, 0.5), h: num(r.h, 0.01, 1, 0.5) });
+  const panels = Array.isArray(t.panels) ? t.panels.slice(0, 24).filter((r) => r && typeof r === 'object').map(fr) : null;
+  const texts = (Array.isArray(t.texts) ? t.texts.slice(0, 20) : []).filter((x) => x && typeof x === 'object').map((x) => ({
+    slot: id(x.slot, 'free'), role: pick(x.role, ids(FONT_ROLES), 'dialogue'), align: pick(x.align, ['left', 'center', 'right'], 'center'),
+    box: bool(x.box), sizeScale: num(x.sizeScale, 0.1, 10, 1), color: hex(x.color, '#1b1f2a'), ...fr(x), ...(x.text ? { text: str(x.text, 500) } : {}),
+  }));
+  if (!panels && !texts.length) return null;
+  return { id: newId, name: str(t.name, 40) || '올린 레이아웃', kind: pick(t.kind, ids(PAGE_KINDS), 'content'), builtin: false, panels: panels && panels.length ? panels : [], texts };
+}

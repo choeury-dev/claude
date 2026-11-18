@@ -279,3 +279,36 @@ test('조작한 회차 파일의 값이 화면(SVG)에 스크립트로 들어가
   const { inner } = renderPage(ep.project.pages[0], { project: ep.project, settings: ep.settings, assets: { a1: { ...a1, url: `data:image/png;base64,AA${evil}` } }, index: 0, total: 1, opts: { guides: true } });
   assert.doesNotMatch(inner, /onload=|onclick=|onerror=|<script/i);
 });
+
+test('페이지형 제작 대본(1페이지 · 표지 / 아래 컷 / 작은 독백 / 게시글·댓글)을 그대로 읽는다', async () => {
+  const fs = await import('node:fs');
+  const { buildPages } = await import('../js/pages.js');
+  const { withDefaults } = await import('../js/catalog.js');
+  const text = fs.readFileSync(new URL('./fixtures/production-script.txt', import.meta.url), 'utf8');
+  const p = parseScript(text);
+  assert.equal(p.pages.length, 12);
+  assert.deepEqual(p.pages.map((x) => x.kind), ['cover', ...Array(10).fill('content'), 'ending']);
+  assert.deepEqual(p.characters, ['고객', '모아', '꺼북과장'], '상태·게시글·댓글·메모 같은 줄은 인물이 아님');
+  assert.equal(p.title, '고이는 사람의 특징: “원래 이렇게 해요”');
+  assert.equal(p.episode, 'AI 밤티 디자인 탈출기 1화');
+  assert.equal(p.endingHeading, '업무 스킬 한 뼘 성장하기');
+  assert.equal(p.endingSubtitle, '고질적인 문제를 발견하고 개선하는 3단계');
+  assert.equal(p.summary.filter((l) => /^\d\./.test(l)).length, 3);
+  assert.match(p.closing, /^업무 개선은/);
+  const [c1, c2] = p.pages[1].scenes;
+  assert.deepEqual(c1.cast.map((m) => m.name), ['모아']);
+  assert.ok(c1.lines.find((l) => l.speaker === '고객').offscreen, '전화 속 고객은 화면 밖');
+  assert.equal(c2.lines[0].kind, 'thought');
+  assert.equal(c2.lines[0].speaker, '모아', '작은 독백은 그 컷 인물의 생각');
+  assert.equal(p.pages[7].scenes[0].lines.filter((l) => l.kind === 'caption').length, 3);
+  assert.equal(p.pages[5].scenes[0].cast.length, 0, '"모아 시점"은 모아가 화면에 나오지 않음');
+  assert.ok(p.pages[2].scenes[1].zoom > 1, '"얼굴로 가까이"는 클로즈업');
+  assert.equal(p.pages[1].scenes[1].zoom, 1, '손 클로즈업은 인물을 키우지 않음');
+  assert.ok(!p.pages[4].scenes[1].lines.find((l) => l.speaker === '꺼북과장').offscreen, '같은 페이지에 나온 인물은 화면 안');
+  assert.equal(p.pages[5].scenes[0].background.kind, 'none', "'방향'의 '방'으로 방 배경이 되지 않음");
+  const res = buildPages(p, withDefaults(null), [], [], measure);
+  assert.equal(res.pages.length, 12);
+  assert.equal(res.pages[9].panels.length, 2);
+  assert.equal(res.pages[8].panels.length, 3);
+  assert.equal(res.pages[11].texts.find((t) => t.slot === 'heading').text, '업무 스킬 한 뼘 성장하기');
+});

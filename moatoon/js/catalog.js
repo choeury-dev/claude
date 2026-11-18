@@ -33,6 +33,7 @@ export const BUBBLES = [
   { id: 'shout', label: '외침', role: 'dialogue' },
   { id: 'whisper', label: '속삭임', role: 'dialogue' },
   { id: 'narration', label: '내레이션', role: 'monologue' },
+  { id: 'caption', label: '글씨(화면·메모)', role: 'dialogue' },
 ];
 
 export const FONT_ROLES = [
@@ -50,10 +51,10 @@ export const FONTS = [
 export const BACKGROUNDS = [
   { id: 'none', label: '배경 없음', words: [] },
   { id: 'cafe', label: '카페', words: ['카페', '커피숍', '까페'] },
-  { id: 'room', label: '방·집', words: ['방', '집', '거실', '침실', '부엌'] },
+  { id: 'room', label: '방·집', words: ['방 안', '방에서', '내 방', '자취방', '집 안', '집에서', '우리 집', '거실', '침실', '부엌'] }, // '방향','집중' 같은 낱말에 걸리지 않게 짧은 '방','집'은 뺐다
   { id: 'classroom', label: '교실', words: ['교실', '학교', '강의실'] },
   { id: 'office', label: '사무실', words: ['사무실', '회사', '회의실', '책상'] },
-  { id: 'street', label: '거리', words: ['거리', '길', '골목', '횡단보도', '건물 앞'] },
+  { id: 'street', label: '거리', words: ['거리에서', '길거리', '도로', '골목', '횡단보도', '건물 앞', '거리,', '거리 '] },
   { id: 'park', label: '공원', words: ['공원', '산책', '나무', '벤치'] },
   { id: 'beach', label: '바다', words: ['바다', '해변', '바닷가'] },
   { id: 'bus', label: '지하철·버스', words: ['지하철', '버스', '전철', '정류장'] },
@@ -135,8 +136,9 @@ export const BUILTIN_TEMPLATES = [
     id: 'builtin-ending', name: '기본 마지막(요약)', kind: 'ending', builtin: true,
     panels: [{ x: 0.07, y: 0.68, w: 0.86, h: 0.25 }],
     texts: [
-      { slot: 'heading', role: 'title', align: 'center', x: 0.07, y: 0.06, w: 0.86, h: 0.09, sizeScale: 0.85 },
-      { slot: 'summary', role: 'dialogue', align: 'left', box: true, x: 0.07, y: 0.17, w: 0.86, h: 0.47, sizeScale: 1 },
+      { slot: 'heading', role: 'title', align: 'center', x: 0.07, y: 0.05, w: 0.86, h: 0.08, sizeScale: 0.85 },
+      { slot: 'endsub', role: 'monologue', align: 'center', x: 0.07, y: 0.13, w: 0.86, h: 0.05, sizeScale: 1 },
+      { slot: 'summary', role: 'dialogue', align: 'left', box: true, x: 0.07, y: 0.19, w: 0.86, h: 0.46, sizeScale: 1 },
     ],
   },
 ];

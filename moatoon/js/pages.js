@@ -4,7 +4,7 @@
 import { BUILTIN_TEMPLATES } from './catalog.js';
 import {
   uid, autoLayout, computePanels, layoutRows, fillPanel, mergeCharacters, layoutText,
-  sizeBubble, placeBubble, defaultCharSize, groundY, refineCharacter,
+  sizeBubble, placeBubble, defaultCharSize, groundY, refineCharacter, zoomPanel, reflowBubbles,
 } from './layout.js';
 
 export function allTemplates(user = []) { return [...BUILTIN_TEMPLATES, ...user]; }
@@ -20,7 +20,8 @@ function slotText(slot, parsed) {
     case 'title': return parsed.title || '제목';
     case 'episode': return parsed.episode || '';
     case 'subtitle': return parsed.subtitle || '';
-    case 'heading': return '오늘의 정리';
+    case 'heading': return parsed.endingHeading || '오늘의 정리';
+    case 'endsub': return parsed.endingSubtitle || '';
     case 'summary': return parsed.summary.length ? parsed.summary.join('\n') : '요약을 입력하세요';
     default: return '';
   }
@@ -46,6 +47,7 @@ export function perPage(settings, tpl) {
 
 // 스크립트(parsed)로 페이지들을 만든다.
 export function buildPages(parsed, settings, userTemplates, existingChars, measure, prepareItem) {
+  if (parsed.pages && parsed.pages.length) return buildFromPageScript(parsed, settings, userTemplates, existingChars, measure, prepareItem);
   const W = settings.width, H = settings.height;
   const characters = mergeCharacters(existingChars || [], parsed.characters);
   const tplOf = (kind) => findTemplate(settings.pageTemplates[kind], userTemplates) || BUILTIN_TEMPLATES.find((t) => t.kind === kind);
@@ -90,6 +92,45 @@ export function buildPages(parsed, settings, userTemplates, existingChars, measu
       }, characters, settings, measure, prepareItem);
     }
     pages.push(page);
+  }
+  return { title: parsed.title, episode: parsed.episode, characters, pages, warnings: [...parsed.warnings] };
+}
+
+// 페이지형 제작 대본("2페이지 · …", "아래 컷")으로 만든다: 대본의 페이지 = 실제 페이지, 컷 수만큼 칸을 나눈다.
+function buildFromPageScript(parsed, settings, userTemplates, existingChars, measure, prepareItem) {
+  const W = settings.width, H = settings.height;
+  const characters = mergeCharacters(existingChars || [], parsed.characters);
+  const tplOf = (kind) => findTemplate(settings.pageTemplates[kind], userTemplates) || BUILTIN_TEMPLATES.find((t) => t.kind === kind);
+  const textsFor = (tpl) => (tpl.texts || []).map((t) => {
+    const it = makeText(t, W, H, t.slot === 'free' ? t.text || '' : slotText(t.slot, parsed), settings, measure);
+    if (t.slot === 'episode' && parsed.episodeColor) it.color = parsed.episodeColor;
+    return it;
+  }).filter((t) => t.text || t.slot === 'free');
+  const finish = (panel, scene) => {
+    fillPanel(panel, scene, characters, settings, measure, prepareItem);
+    if (scene.zoom > 1) { zoomPanel(panel, scene.zoom, settings.style); reflowBubbles(panel, settings.style, settings, measure, false); }
+  };
+  const pages = [];
+  for (const sp of parsed.pages) {
+    const tpl = tplOf(sp.kind);
+    if (sp.kind === 'content') {
+      const n = Math.max(1, sp.scenes.length);
+      const fixed = tpl.panels && tpl.panels.length === n ? tpl : null;
+      const rects = contentRects(settings, n, fixed, false);
+      const page = { id: uid('pg'), kind: 'content', templateId: fixed ? tpl.id : 'auto', title: sp.title, panels: rects.map(emptyPanel), texts: fixed ? textsFor(tpl) : [], notes: sp.notes };
+      page.panels.forEach((p, k) => { if (sp.scenes[k]) finish(p, sp.scenes[k]); });
+      pages.push(page);
+    } else {
+      const page = { id: uid('pg'), kind: sp.kind, templateId: tpl.id, title: sp.title, panels: (tpl.panels || []).map((r) => emptyPanel(denorm(r, W, H))), texts: textsFor(tpl), notes: sp.notes };
+      if (page.panels[0]) {
+        if (sp.kind === 'cover' && sp.scene) finish(page.panels[0], sp.scene);
+        if (sp.kind === 'ending') {
+          const host = characters.find((c) => c.name === parsed.characters.find((n) => n !== '고객')) || characters[0];
+          if (host) finish(page.panels[0], { background: { kind: 'none', night: false, label: '' }, desc: '마무리', notes: [], zoom: 1, lines: parsed.closing ? [{ kind: 'speech', speaker: host.name, text: parsed.closing }] : [], cast: [{ name: host.name, emotion: 'happy', action: 'wave' }] });
+        }
+      }
+      pages.push(page);
+    }
   }
   return { title: parsed.title, episode: parsed.episode, characters, pages, warnings: [...parsed.warnings] };
 }

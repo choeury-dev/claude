@@ -174,7 +174,7 @@ function tailTarget(item, panel, style) {
 export function drawBubble(item, panel, settings, opts = {}) {
   const ink = '#1b1f2a', sw = 3;
   const cx = item.x + item.w / 2, cy = item.y + item.h / 2, rx = item.w / 2, ry = item.h / 2;
-  const target = item.kind === 'narration' ? null : tailTarget(item, panel, settings.style);
+  const target = item.kind === 'narration' || item.kind === 'caption' ? null : tailTarget(item, panel, settings.style);
   let outline = '', fill = '';
   let tail = null;
   if (target) {
@@ -187,6 +187,9 @@ export function drawBubble(item, panel, settings, opts = {}) {
   const k = item.kind;
   if (k === 'narration') {
     outline = `<rect x="${f1(item.x)}" y="${f1(item.y)}" width="${f1(item.w)}" height="${f1(item.h)}" fill="#fffbe6" stroke="${ink}" stroke-width="${sw}"/>`;
+  } else if (k === 'caption') {
+    // 화면·종이·메모에 적힌 글: 꼬리 없는 둥근 네모, 옅은 회색 테두리
+    outline = `<rect x="${f1(item.x)}" y="${f1(item.y)}" width="${f1(item.w)}" height="${f1(item.h)}" rx="10" fill="#ffffff" stroke="#8a94a3" stroke-width="2.5"/>`;
   } else if (k === 'thought') {
     const bumps = Math.max(8, Math.round((item.w + item.h) / 34));
     const circles = [];

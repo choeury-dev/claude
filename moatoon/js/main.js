@@ -5,15 +5,19 @@ import {
 import { parseScript } from './script.js';
 import {
   uid, sizeBubble, placeBubble, refineCharacter, reflowBubbles, nearestCharacter, characterBox,
-  defaultCharSize, groundY, layoutRows, bubbleRole, layoutText, MIN_BUBBLE, computePanels, headBox,
+  defaultCharSize, groundY, layoutRows, bubbleRole, layoutText, MIN_BUBBLE, computePanels, headBox, rectsInArea,
 } from './layout.js';
 import { renderPage, face, figure, drawImageFigure, entryCrop, entryHead, pickEntry, drawMarks } from './render.js';
 import { textureDefs, textureFilterAttr, filterDef } from './texture.js';
 import { checkLine } from './spell.js';
 import { aiCheck, aiCharacterGuide, basicGuide, describeError } from './ai.js';
 import * as store from './store.js';
-import { sanitizeEpisode, sanitizeAsset, safeImageUrl } from './sanitize.js';
+import { sanitizeEpisode, sanitizeAsset, safeImageUrl, sanitizeTemplate } from './sanitize.js';
+
+// GitHub Pages 배포 주소 (미리보기 화면에서 Google 연결이 막힐 때 안내용)
+const DEPLOY_URL = 'https://choeury-dev.github.io/claude/moatoon/';
 import * as drive from './drive.js';
+import { BUILTIN_TEMPLATES } from './catalog.js';
 import {
   buildPages, templateFromPage, applyTemplate, applyRects, blankPage, migrateProject, allTemplates, findTemplate, makeText, perPage,
 } from './pages.js';
@@ -164,8 +168,11 @@ function usedAssetIds(ep) {
 
 // ── 회차 만들기·열기 ─────────────────────────────────────────────────
 function generateEp(ep, keepChars = true) {
-  const chars = keepChars && ep.project ? ep.project.characters : [];
-  const parsed = parseScript(ep.script, chars.map((c) => c.name));
+  const prevChars = keepChars && ep.project ? ep.project.characters : [];
+  const firstPass = parseScript(ep.script, prevChars.map((c) => c.name));
+  // 새 대본에 나오거나 이미지를 등록한 인물만 남긴다(예시 대본 인물이 남지 않게)
+  const chars = prevChars.filter((c) => firstPass.characters.includes(c.name) || (c.images && c.images.length));
+  const parsed = chars.length === prevChars.length ? firstPass : parseScript(ep.script, chars.map((c) => c.name));
   const res = buildPages(parsed, ep.settings, app.templates, chars, measure, (it) => updateItemImage(it, chars));
   ep.project = { title: res.title, episode: res.episode, characters: res.characters, pages: res.pages };
   if (!ep.name || ep.name === '새 회차') ep.name = [res.episode, res.title].filter(Boolean).join(' ') || ep.name || '새 회차';
@@ -287,7 +294,7 @@ function homeLocal() {
 
 function homeGoogle() {
   if (!app.google.clientId) {
-    return `<div class="section-head"><h2>Google 드라이브</h2></div>
+    return `<div class="section-head"><h2>Google 드라이브</h2></div>${driveErrorBox()}
       <div class="connect-box">
         <b>Google 드라이브의 회차 파일을 열려면 OAuth 클라이언트 ID가 필요합니다.</b>
         <ol>
@@ -300,13 +307,13 @@ function homeGoogle() {
         <label class="field"><span>회차 폴더 주소 (선택: 비우면 내 드라이브 전체)</span><input id="g-folder" placeholder="https://drive.google.com/drive/folders/…" value="${esc(app.google.folder)}"></label>
         <div class="row"><button class="btn accent" data-g="save-connect">저장하고 연결</button></div>
         <p class="hint">회차 파일은 구글 문서, .txt/.md 스크립트, 이 앱이 저장한 .moatoon.json 을 엽니다. 클라이언트 ID는 이 브라우저에만 저장됩니다.</p>
-      </div>`;
+      </div>${OFFLINE_HELP}`;
   }
   if (!drive.isConnected()) {
-    return `<div class="section-head"><h2>Google 드라이브</h2></div>
+    return `<div class="section-head"><h2>Google 드라이브</h2></div>${driveErrorBox()}
       <div class="connect-box"><b>Google 계정으로 연결하면 회차 파일 목록을 불러옵니다.</b>
       <div class="row"><button class="btn accent" data-g="connect">Google 드라이브 연결</button><button class="btn line" data-g="forget">클라이언트 ID 지우기</button></div>
-      <p class="hint">처음 연결할 때 Google이 드라이브 읽기와 이 앱이 만든 파일 저장 권한을 묻습니다.</p></div>`;
+      <p class="hint">처음 연결할 때 Google이 드라이브 읽기와 이 앱이 만든 파일 저장 권한을 묻습니다.</p></div>${OFFLINE_HELP}`;
   }
   const crumbs = [{ id: drive.folderIdFrom(app.google.folder) || '', name: app.google.folder ? '회차 폴더' : '내 드라이브' }, ...app.drivePath];
   const files = app.driveFiles || [];
@@ -337,8 +344,10 @@ function tplThumb(tpl, s) {
 
 function homeLayouts() {
   const all = allTemplates(app.templates);
-  return `<div class="section-head"><h2>레이아웃 보관함</h2><span class="muted">편집 화면의 페이지 위 "레이아웃으로 등록"으로 추가합니다.</span></div>
-    ${PAGE_KINDS.map((k) => `<h3 class="muted" style="margin:18px 0 10px">${k.label}</h3><div class="grid-cards">${all.filter((t) => t.kind === k.id).map((t) => `<div class="card"><div class="thumb" style="aspect-ratio:${app.defaults.width}/${app.defaults.height};background:#fff">${tplThumb(t, app.defaults)}</div><div class="meta"><b>${esc(t.name)}</b><span>${t.builtin ? '기본 레이아웃' : '내가 등록'}${app.defaults.pageTemplates[k.id] === t.id ? ' · 새 회차 기본값' : ''}</span></div>${t.builtin ? '' : `<div class="card-menu"><button data-del-tpl="${t.id}">삭제</button></div>`}</div>`).join('')}</div>`).join('')}`;
+  return `<div class="section-head"><h2>레이아웃 보관함</h2><div class="row"><button class="btn accent" data-tplact="create">＋ 새 레이아웃 만들기</button><button class="btn line" data-tplact="upload">레이아웃 파일 올리기</button></div></div>
+    <p class="hint">편집 화면에서 다듬은 페이지는 페이지 위 아이콘의 "레이아웃으로 등록"으로도 추가할 수 있습니다. 내가 만든 레이아웃은 파일로 내보내 다른 컴퓨터에서 올릴 수 있습니다.</p>
+    ${PAGE_KINDS.map((k) => `<h3 class="muted" style="margin:18px 0 10px">${k.label}</h3><div class="grid-cards">${all.filter((t) => t.kind === k.id).map((t) => `<div class="card"><div class="thumb" style="aspect-ratio:${app.defaults.width}/${app.defaults.height};background:#fff">${tplThumb(t, app.defaults)}</div><div class="meta"><b>${esc(t.name)}</b><span>${t.builtin ? '기본 레이아웃' : '내가 등록'}${app.defaults.pageTemplates[k.id] === t.id ? ' · 새 회차 기본값' : ''}</span></div>${t.builtin ? '' : `<div class="card-menu"><button data-tpl-default="${t.id}">기본값으로</button><button data-tpl-export="${t.id}">내보내기</button><button data-del-tpl="${t.id}">삭제</button></div>`}</div>`).join('')}</div>`).join('')}
+    <input id="file-template" type="file" accept=".json,application/json" hidden>`;
 }
 
 async function driveList() {
@@ -350,8 +359,26 @@ async function driveList() {
   app.driveBusy = false; renderHome();
 }
 async function driveConnect() {
-  try { await drive.connect(app.google.clientId); app.drivePath = []; await driveList(); } catch (e) { toast(e.message); renderHome(); }
+  app.driveError = null;
+  try { await drive.connect(app.google.clientId); app.drivePath = []; await driveList(); } catch (e) { app.driveError = { code: e.code || 'other', message: e.message }; renderHome(); }
 }
+function driveErrorBox() {
+  const e = app.driveError;
+  if (!e) return '';
+  const help = {
+    script: `<p>이 화면에서는 Google 로그인 스크립트를 불러올 수 없습니다. <b>claude.ai 미리보기 화면은 보안 정책 때문에 외부 로그인(Google)을 막습니다.</b></p>
+      <p>배포한 주소에서 열어 주세요: <a href="${DEPLOY_URL}" target="_blank" rel="noopener">${DEPLOY_URL}</a></p>
+      <p class="hint">배포 주소에서도 같은 오류가 나면 광고·추적 차단 확장 프로그램이 Google 스크립트를 막고 있을 수 있습니다.</p>`,
+    denied: `<p>Google이 접근을 거부했습니다(access_denied). 앱이 <b>테스트</b> 상태라서 <b>테스트 사용자</b>로 등록한 계정만 로그인할 수 있습니다.</p>
+      <p class="hint">Google Cloud 콘솔 → Google 인증 플랫폼 → 대상 → 테스트 사용자에, 로그인 창에서 고른 계정 주소를 myaccount.google.com 에 표시된 그대로 추가하세요.</p>`,
+    popup: '<p>로그인 창을 열지 못했습니다. 브라우저 주소창의 팝업 차단 아이콘에서 이 사이트의 팝업을 허용해 주세요.</p>',
+    closed: '<p>로그인 창이 닫혔습니다. 다시 연결을 눌러 주세요.</p>',
+  }[e.code] || `<p>${esc(e.message)}</p>`;
+  return `<div class="connect-box" style="border-color:var(--warn);margin-bottom:14px"><b style="color:var(--warn)">연결하지 못했습니다</b>${help}</div>`;
+}
+const OFFLINE_HELP = `<div class="connect-box" style="margin-top:14px"><b>연결 없이 드라이브 파일 쓰기</b>
+  <p class="hint">Google 드라이브에서 스크립트를 내려받아(구글 문서는 파일 → 다운로드 → 일반 텍스트) 바로 열 수 있습니다.</p>
+  <div class="row"><button class="btn line" data-g="local-file">내려받은 파일 열기</button></div></div>`;
 async function openDriveFile(id) {
   const f = (app.driveFiles || []).find((x) => x.id === id);
   if (!f) return;
@@ -384,7 +411,11 @@ function bindHome() {
     const a = e.target.closest('[data-act]');
     if (!a) return;
     if (a.dataset.act === 'new') startNew();
-    if (a.dataset.act === 'google') { app.homeSrc = 'google'; renderHome(); if (drive.isConnected() && !app.driveFiles) driveList(); }
+    if (a.dataset.act === 'google') {
+      app.homeSrc = 'google'; renderHome();
+      if (drive.isConnected()) { if (!app.driveFiles) driveList(); }
+      else if (app.google.clientId) driveConnect(); // 클릭한 그 순간에 로그인 창을 연다(팝업 차단 피함)
+    }
   });
   $('#home-content').addEventListener('click', async (e) => {
     const t = e.target;
@@ -405,6 +436,18 @@ function bindHome() {
       await store.put('episodes', ep); app.episodes.push(ep); renderHome();
       return;
     }
+    const ta = t.closest('[data-tplact]');
+    if (ta) { if (ta.dataset.tplact === 'create') createLayoutDialog(); else $('#file-template').click(); return; }
+    const te = t.closest('[data-tpl-export]');
+    if (te) { e.stopPropagation(); exportTemplate(te.dataset.tplExport); return; }
+    const td = t.closest('[data-tpl-default]');
+    if (td) {
+      e.stopPropagation();
+      const tpl = app.templates.find((x) => x.id === td.dataset.tplDefault);
+      app.defaults.pageTemplates[tpl.kind] = tpl.id; store.lsSet(LS.defaults, app.defaults);
+      renderHome(); toast(`새 회차의 ${pageKindLabel(tpl.kind)} 페이지에 '${tpl.name}'을(를) 씁니다.`);
+      return;
+    }
     const delT = t.closest('[data-del-tpl]');
     if (delT) { app.templates = app.templates.filter((x) => x.id !== delT.dataset.delTpl); store.lsSet(LS.templates, app.templates); renderHome(); return; }
     const open = t.closest('[data-open]');
@@ -423,6 +466,7 @@ function bindHome() {
       if (act === 'refresh') driveList();
       if (act === 'disconnect') { drive.disconnect(); app.driveFiles = null; renderHome(); }
       if (act === 'forget') { app.google.clientId = ''; store.lsSet(LS.google, app.google); renderHome(); }
+      if (act === 'local-file') $('#file-script').click();
       return;
     }
     const fo = t.closest('[data-folder]');
@@ -431,6 +475,20 @@ function bindHome() {
     if (cr) { app.drivePath = app.drivePath.slice(0, Number(cr.dataset.crumb)); driveList(); return; }
     const gf = t.closest('[data-gfile]');
     if (gf) openDriveFile(gf.dataset.gfile);
+  });
+  $('#home-content').addEventListener('change', async (e) => {
+    if (e.target.id !== 'file-template') return;
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      const list = Array.isArray(data) ? data : Array.isArray(data.templates) ? data.templates : [data];
+      const added = list.map((t) => sanitizeTemplate(t, uid('tpl'))).filter(Boolean);
+      if (!added.length) { toast('레이아웃 파일이 아닙니다. 이 앱에서 내보낸 .json 파일을 올려 주세요.'); return; }
+      app.templates.push(...added); store.lsSet(LS.templates, app.templates);
+      renderHome(); toast(`레이아웃 ${added.length}개를 올렸습니다.`);
+    } catch { toast('파일을 읽지 못했습니다. 이 앱에서 내보낸 레이아웃 .json 파일인지 확인해 주세요.'); }
   });
   $('#home-content').addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
@@ -447,6 +505,61 @@ function bindHome() {
       else { const ep = newEpisode(text, f.name.replace(/\.(txt|md)$/i, '')); openEpisode(ep); save(); }
     } catch (err) { toast(err.message); }
   });
+}
+
+// ── 레이아웃 만들기·내보내기 ─────────────────────────────────────────
+function rowsFromSpec(spec) {
+  const nums = String(spec).split(/[^0-9]+/).map(Number).filter((n) => n >= 1 && n <= 6).slice(0, 8);
+  return nums.map((n) => Array(n).fill(1));
+}
+function layoutFromSpec(kind, spec) {
+  const d = app.defaults, W = d.width, H = d.height;
+  const builtin = BUILTIN_TEMPLATES.find((t) => t.kind === kind && t.panels);
+  const area = kind !== 'content' && builtin ? { x: builtin.panels[0].x * W, y: builtin.panels[0].y * H, w: builtin.panels[0].w * W, h: builtin.panels[0].h * H } : { x: d.margin, y: d.margin, w: W - d.margin * 2, h: H - d.margin * 2 };
+  const rows = rowsFromSpec(spec);
+  const panels = rows.length ? rectsInArea(area, rows, d.gutter).map((r) => ({ x: r.x / W, y: r.y / H, w: r.w / W, h: r.h / H })) : [];
+  return { panels, texts: kind !== 'content' && builtin ? clone(builtin.texts) : [] };
+}
+function createLayoutDialog() {
+  openModal('새 레이아웃 만들기', `
+    <div class="row" style="align-items:flex-start;gap:18px;flex-wrap:wrap">
+      <div id="nl-prev" style="width:180px;background:#fff;border-radius:6px"></div>
+      <div style="display:grid;gap:10px;flex:1;min-width:240px">
+        <label class="field"><span>이름</span><input id="nl-name" maxlength="30" value="내 레이아웃"></label>
+        <label class="field"><span>종류</span><select id="nl-kind">${opt(PAGE_KINDS, 'content')}</select></label>
+        <label class="field"><span>줄마다 칸 수 (위에서부터, 쉼표로)</span><input id="nl-rows" value="1,2" placeholder="예: 1,2,2"></label>
+        <div class="row">${['1', '2', '1,1', '1,2', '2,2', '1,2,2', '2,2,2', '3,3,3'].map((r) => `<button class="btn line sm" data-nl="${r}">${r}</button>`).join('')}</div>
+        <p class="hint">표지·마지막 레이아웃은 기본 글 상자(제목, 요약 등) 자리를 그대로 두고 그림 칸만 나눕니다. 칸 크기는 편집 화면에서 모서리로 조절한 뒤 다시 등록할 수 있습니다.</p>
+        <label class="switch"><input type="checkbox" id="nl-default" checked> 새 회차의 기본 레이아웃으로 쓰기</label>
+        <div class="row"><button class="btn accent" id="nl-save">만들기</button></div>
+      </div>
+    </div>`, (b) => {
+    const preview = () => { const tpl = layoutFromSpec($('#nl-kind', b).value, $('#nl-rows', b).value); $('#nl-prev', b).innerHTML = tplThumb(tpl, app.defaults); };
+    b.addEventListener('input', preview);
+    b.addEventListener('change', preview);
+    b.addEventListener('click', (e) => { const x = e.target.closest('[data-nl]'); if (x) { $('#nl-rows', b).value = x.dataset.nl; preview(); } });
+    $('#nl-save', b).addEventListener('click', () => {
+      const kind = $('#nl-kind', b).value;
+      const parts = layoutFromSpec(kind, $('#nl-rows', b).value);
+      if (!parts.panels.length && kind === 'content') { toast('칸 수를 1 이상으로 적어 주세요. 예: 1,2'); return; }
+      const tpl = { id: uid('tpl'), name: $('#nl-name', b).value.trim() || '내 레이아웃', kind, builtin: false, ...parts };
+      app.templates.push(tpl); store.lsSet(LS.templates, app.templates);
+      if ($('#nl-default', b).checked) { app.defaults.pageTemplates[kind] = tpl.id; store.lsSet(LS.defaults, app.defaults); }
+      closeModal(); renderHome(); toast(`'${tpl.name}' 레이아웃을 만들었습니다.`);
+    });
+    preview();
+  });
+}
+function exportTemplate(id) {
+  const tpl = app.templates.find((x) => x.id === id);
+  if (!tpl) return;
+  const { builtin, ...data } = tpl;
+  const url = URL.createObjectURL(new Blob([JSON.stringify({ format: 'moatoon-layout', version: 1, templates: [data] }, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = `${tpl.name.replace(/[\\/:*?"<>|]/g, '') || 'layout'}.moatoon-layout.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('레이아웃 파일을 내보냈습니다. (미리보기 화면에서는 저장이 막힐 수 있습니다)');
 }
 
 function startNew() {
@@ -1206,6 +1319,14 @@ function renderScriptPreview() {
   const box = $('#script-preview');
   if (!box) return;
   const parsed = parseScript(app.ep.script);
+  if (parsed.pages && parsed.pages.length) {
+    const lineCount = (sc) => sc.lines.length;
+    box.innerHTML = `<b>${parsed.pages.length}페이지</b> 예정 (대본의 페이지 구분을 그대로 따름)<br>인물 ${parsed.characters.length}명${parsed.characters.length ? ` (${parsed.characters.map(esc).join(', ')})` : ''}
+      <ol>${parsed.pages.map((pg) => `<li>${esc(pg.title || '')} — ${pageKindLabel(pg.kind)}${pg.kind === 'content' ? `, ${pg.scenes.length}컷 · 글 ${pg.scenes.reduce((a, sc) => a + lineCount(sc), 0)}개${pg.scenes.some((sc) => sc.zoom > 1) ? ' · 클로즈업' : ''}` : ''}</li>`).join('')}</ol>
+      ${parsed.summary.length ? `요약 ${parsed.summary.filter((l) => /^\d+[.)]/.test(l)).length || parsed.summary.length}항목` : ''}
+      ${parsed.warnings.map((w) => `<div class="warn">${esc(w)}</div>`).join('')}`;
+    return;
+  }
   const per = perPage(S(), findTemplate(S().pageTemplates.content, app.templates));
   const nContent = Math.max(1, Math.ceil(parsed.scenes.length / per));
   const total = (parsed.title ? 1 : 0) + nContent + (parsed.summary.length || parsed.closing ? 1 : 0);

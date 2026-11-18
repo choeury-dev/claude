@@ -67,6 +67,21 @@ export function titleHeight(settings, hasTitle) {
   return hasTitle && settings.showTitle ? Math.round(settings.fonts.title.size * 1.9) : 0;
 }
 
+// 주어진 영역(area)을 줄마다 칸 수(rows: [[1],[1,1]] 꼴)로 나눈다
+export function rectsInArea(area, rows, gutter) {
+  const rects = [];
+  const rowH = (area.h - gutter * (rows.length - 1)) / rows.length;
+  let y = area.y;
+  for (const row of rows) {
+    const total = row.reduce((a, b) => a + b, 0);
+    const innerW = area.w - gutter * (row.length - 1);
+    let x = area.x;
+    for (const wgt of row) { const w = (innerW * wgt) / total; rects.push({ x, y, w, h: rowH }); x += w + gutter; }
+    y += rowH + gutter;
+  }
+  return rects;
+}
+
 export function computePanels(settings, layoutId, hasTitle, n) {
   const rows = layoutRows(layoutId, n);
   const { width: W, height: H, margin: m, gutter: g } = settings;
@@ -146,7 +161,7 @@ export function sizeBubble(item, panel, settings, measure) {
   const font = settings.fonts[bubbleRole(item)];
   let size = font.size * (item.kind === 'shout' ? 1.15 : item.kind === 'whisper' ? 0.9 : 1);
   if (item.manual && item.w && item.h) return fitInBox(item, font, size, measure);
-  const maxTextW = Math.min(panel.w * (item.kind === 'narration' ? 0.8 : 0.55), size * 11);
+  const maxTextW = Math.min(panel.w * (item.kind === 'narration' || item.kind === 'caption' ? 0.8 : 0.55), size * (item.kind === 'caption' ? 16 : 11));
   let lines, textW, textH;
   for (let tries = 0; tries < 6; tries++) {
     lines = wrapText(item.text, maxTextW, font.family, size, measure);
@@ -157,7 +172,7 @@ export function sizeBubble(item, panel, settings, measure) {
     size *= 0.88; // 컷보다 크면 글자를 조금 줄인다
   }
   let w, h;
-  if (item.kind === 'narration') { w = textW + size * 1.2; h = textH + size * 0.9; }
+  if (item.kind === 'narration' || item.kind === 'caption') { w = textW + size * 1.2; h = textH + size * 0.9; }
   else if (item.kind === 'thought') { w = textW / 0.68 + 24; h = textH / 0.62 + 20; }
   else if (item.kind === 'shout') { w = textW / 0.66 + 30; h = textH / 0.6 + 28; }
   else { w = textW / 0.74 + 14; h = textH / 0.7 + 12; }
@@ -181,6 +196,7 @@ export function placeBubble(panel, bubble, others, style, opts = {}) {
   let ideal = opts.ideal;
   if (!ideal) {
     if (bubble.kind === 'narration') ideal = { x: panel.x + bubble.w / 2 + pad, y: panel.y + bubble.h / 2 + pad };
+    else if (bubble.kind === 'caption') ideal = { x: panel.x + panel.w / 2, y: (opts.prev ? opts.prev.y + opts.prev.h + bubble.h / 2 + 10 : panel.y + panel.h * 0.3) };
     else if (head) {
       // 위에서부터 대사 순서대로 쌓는다: 첫 대사는 컷 위쪽, 다음 대사는 앞 대사 조금 아래
       const top = opts.prev ? opts.prev.y + opts.prev.h * 0.55 : panel.y + pad;
@@ -334,7 +350,12 @@ export function layoutText(item, settings, measure) {
   const font = settings.fonts[item.role] || settings.fonts.dialogue;
   const base = font.size * (item.sizeScale || 1);
   const padX = item.box ? base * 0.8 : 4, padY = item.box ? base * 0.7 : 2;
-  const paras = String(item.text || '').split('\n').map((t) => (item.slot === 'summary' && t.trim() ? `• ${t.replace(/^[-•]\s*/, '')}` : t));
+  // 요약 목록: "1. …"은 번호 그대로, 들여 쓴 줄은 설명(기호 없음), 나머지는 • 를 붙인다
+  const paras = String(item.text || '').split('\n').map((t) => {
+    if (item.slot !== 'summary' || !t.trim()) return t;
+    if (/^\d+[.)]\s/.test(t) || /^\s/.test(t)) return t.trim();
+    return `• ${t.replace(/^[-•]\s*/, '')}`;
+  });
   let size = base, lines = [];
   for (let tries = 0; tries < 30; tries++) {
     lines = [];
@@ -344,6 +365,23 @@ export function layoutText(item, settings, measure) {
     size = Math.max(10, size * 0.93);
   }
   return { lines, fontSize: size };
+}
+
+// 클로즈업: 인물 얼굴을 기준점으로 컷 안의 인물(과 배경)을 z배 키운다. 말풍선 글자는 그대로.
+export function zoomPanel(panel, z, style) {
+  const heads = panel.items.filter((i) => i.type === 'character').map((c) => headBox(c, style));
+  if (!heads.length || z <= 1) return;
+  const f = { x: heads.reduce((a, h) => a + h.cx, 0) / heads.length, y: heads.reduce((a, h) => a + h.cy, 0) / heads.length };
+  // 얼굴이 컷 위쪽 1/3 쯤에 오도록 기준점을 잡는다
+  panel.focus = f;
+  for (const it of panel.items) {
+    if (it.type !== 'character') continue;
+    it.x = f.x + (it.x - f.x) * z;
+    it.y = f.y + (it.y - f.y) * z + (panel.y + panel.h * 0.4 - f.y);
+    it.size *= z;
+  }
+  panel.focus = { x: f.x, y: panel.y + panel.h * 0.4 };
+  panel.zoom = Math.round(z * 100) / 100;
 }
 
 export function generateProject(parsed, settings, existingChars, measure) {
