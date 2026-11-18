@@ -1433,15 +1433,6 @@ function sideSettings() {
   const assets = Object.values(app.assets);
   return `<h2>설정</h2>
     <p class="hint">이 회차에 적용됩니다. 새 회차에도 쓰려면 맨 아래 "기본값으로 저장"을 누르세요.</p>
-    <h3>캔버스 크기</h3>
-    <div class="chips">${SIZES.map((z) => `<button class="choice" data-size="${z.id}" aria-pressed="${s.sizeId === z.id}" style="justify-items:start">${z.label}<small>${z.id === 'custom' ? '직접 입력' : `${z.w}×${z.h}`}</small></button>`).join('')}</div>
-    <div class="kv"><label for="set-w">가로·세로</label><div class="row" style="flex-wrap:nowrap"><input id="set-w" type="number" min="400" max="4000" step="10" value="${s.width}" data-num="width"><input id="set-h" type="number" min="400" max="6000" step="10" value="${s.height}" data-num="height" aria-label="세로"></div><span></span></div>
-    <div class="group"><h3>내용 페이지 컷</h3>
-    <div class="choices">${LAYOUTS.map((l) => `<button class="choice" data-layout="${l.id}" aria-pressed="${s.layout === l.id}">${l.rows ? tplThumb({ panels: computePanels({ ...s, showTitle: false }, l.id, false).map((r) => ({ x: r.x / s.width, y: r.y / s.height, w: r.w / s.width, h: r.h / s.height })) }, s) : '<span class="lt" style="font-size:20px;padding:12px 0">자동</span>'}${l.label}</button>`).join('')}</div>
-    ${s.layout === 'auto' ? slider('per', '페이지당 컷', s.panelsPerPage, 1, 9, 1, '컷') : ''}
-    ${slider('margin', '바깥 여백', s.margin, 0, 120, 2)}
-    ${slider('gutter', '컷 간격', s.gutter, 0, 80, 2)}
-    <p class="hint">크기·컷·여백은 "배치 가이드 다시 만들기"를 하거나 레이아웃 탭에서 다시 적용하면 반영됩니다.</p></div>
     <div class="group"><h3>질감 표현</h3>
     <div class="choices">${TEXTURES.map((t) => `<button class="choice" data-texture="${t.id}" aria-pressed="${s.texture === t.id}">${textureSample(t.id)}${t.label}<small>${t.note}</small></button>`).join('')}</div>
     <p class="hint" style="margin-top:6px">배경·인물·업로드 이미지에 입히고 글자에는 입히지 않습니다. 내보낸 PNG에도 같이 들어갑니다.</p>
@@ -1452,6 +1443,16 @@ function sideSettings() {
     <p class="hint">그림 질감과 따로 고를 수 있습니다. 예) 그림은 수채화, 테두리는 펜.</p>
     <h3>가이드 인물 모양</h3>
     <div class="choices">${STYLES.map((st) => `<button class="choice" data-style="${st.id}" aria-pressed="${s.style === st.id}">${st.label}</button>`).join('')}</div></div>
+    <div class="group"><h3>캔버스 크기</h3>
+    <div class="chips">${SIZES.map((z) => `<button class="choice" data-size="${z.id}" aria-pressed="${s.sizeId === z.id}" style="justify-items:start">${z.label}<small>${z.id === 'custom' ? '직접 입력' : `${z.w}×${z.h}`}</small></button>`).join('')}</div>
+    <div class="kv"><label for="set-w">가로·세로</label><div class="row" style="flex-wrap:nowrap"><input id="set-w" type="number" min="400" max="4000" step="10" value="${s.width}" data-num="width"><input id="set-h" type="number" min="400" max="6000" step="10" value="${s.height}" data-num="height" aria-label="세로"></div><span></span></div>
+    </div>
+    <div class="group"><h3>내용 페이지 컷</h3>
+    <div class="choices">${LAYOUTS.map((l) => `<button class="choice" data-layout="${l.id}" aria-pressed="${s.layout === l.id}">${l.rows ? tplThumb({ panels: computePanels({ ...s, showTitle: false }, l.id, false).map((r) => ({ x: r.x / s.width, y: r.y / s.height, w: r.w / s.width, h: r.h / s.height })) }, s) : '<span class="lt" style="font-size:20px;padding:12px 0">자동</span>'}${l.label}</button>`).join('')}</div>
+    ${s.layout === 'auto' ? slider('per', '페이지당 컷', s.panelsPerPage, 1, 9, 1, '컷') : ''}
+    ${slider('margin', '바깥 여백', s.margin, 0, 120, 2)}
+    ${slider('gutter', '컷 간격', s.gutter, 0, 80, 2)}
+    <p class="hint">크기·컷·여백은 "배치 가이드 다시 만들기"를 하거나 레이아웃 탭에서 다시 적용하면 반영됩니다.</p></div>
     <div class="group"><h3>폰트</h3><div id="font-rows">${fontRowsHTML()}</div></div>
     <div class="group"><h3>워터마크·페이지 번호 <span class="muted">모든 페이지 같은 자리</span></h3>
     <div class="mark-preview">${markPreview()}<div style="display:grid;gap:6px"><span class="muted">미리보기 (2 / 5 페이지)</span><span class="hint"><b style="color:#e8590c">주황</b> 워터마크, <b style="color:#3bc9db">청록</b> 페이지 번호. 위치 칸을 고른 뒤 슬라이더로 가장자리에서 떨어진 거리를 맞추세요.</span></div></div>
