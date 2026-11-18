@@ -42,3 +42,14 @@ export async function editImage({ apiKey, model, prompt, images, mask, size, qua
   if (!b64) throw new Error('OpenAI 응답에 이미지가 없습니다.');
   return `data:image/png;base64,${b64}`;
 }
+
+// 키 확인: 모델 목록 조회(요금 없음)
+export async function testOpenAIKey(apiKey) {
+  let res;
+  try { res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${apiKey}` } }); } catch {
+    throw new Error('OpenAI 에 연결하지 못했습니다. 인터넷 연결을 확인하거나, claude.ai 미리보기가 아닌 배포 주소에서 열어 주세요.');
+  }
+  if (res.status === 401) throw Object.assign(new Error('키가 맞지 않습니다(401). OpenAI 대시보드에서 키를 다시 복사해 주세요.'), { status: 401 });
+  if (!res.ok) { let m = ''; try { m = (await res.json()).error?.message || ''; } catch { /* */ } throw new Error(`OpenAI 오류 (${res.status}) ${m}`); }
+  return ((await res.json()).data || []).map((m) => m.id);
+}

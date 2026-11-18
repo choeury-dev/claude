@@ -272,3 +272,11 @@ export async function aiFindRegions(apiKey, imageUrl, knownNames = []) {
     x: cl(r.x), y: cl(r.y), w: Math.max(0.01, Math.min(1 - cl(r.x), cl(r.w))), h: Math.max(0.01, Math.min(1 - cl(r.y), cl(r.h))),
   }));
 }
+
+// 키 확인: 모델 목록 조회(요금 없음)로 키가 맞는지만 본다
+export async function testAnthropicKey(apiKey) {
+  const { default: Anthropic } = await import(SDK_URL);
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 0 });
+  const page = await client.models.list({ limit: 20 });
+  return (page.data || []).map((m) => m.id);
+}

@@ -10,8 +10,8 @@ import {
 import { renderPage, face, figure, drawImageFigure, entryCrop, entryHead, pickEntry, drawMarks } from './render.js';
 import { textureDefs, textureFilterAttr, filterDef } from './texture.js';
 import { checkLine } from './spell.js';
-import { aiCheck, aiCharacterGuide, basicGuide, describeError, aiFindRegions } from './ai.js';
-import { IMAGE_MODELS } from './openai-image.js';
+import { aiCheck, aiCharacterGuide, basicGuide, describeError, aiFindRegions, testAnthropicKey } from './ai.js';
+import { IMAGE_MODELS, testOpenAIKey } from './openai-image.js';
 import { fillBackground, cutOutCharacter, changeExpression, expandRect } from './image-edit.js';
 import * as store from './store.js';
 import { sanitizeEpisode, sanitizeAsset, safeImageUrl, sanitizeTemplate } from './sanitize.js';
@@ -328,18 +328,23 @@ function homeGoogle() {
   const files = app.driveFiles || [];
   const folders = files.filter((f) => drive.kindOf(f) === 'folder');
   const docs = files.filter((f) => drive.kindOf(f) !== 'folder');
+  const unsupported = docs.filter((f) => drive.kindOf(f) === 'unsupported');
   const q = app.homeQuery.trim();
   const shown = docs.filter((f) => !q || f.name.includes(q));
+  const g = drive.grantedScopes();
   return `<div class="section-head"><h2>Google 드라이브</h2><div class="row"><button class="btn line sm" data-g="refresh">새로고침</button><button class="btn line sm" data-g="disconnect">연결 해제</button></div></div>
+    ${driveErrorBox()}
+    <p class="hint" style="margin-bottom:10px">● 연결됨 · 약 ${drive.minutesLeft()}분 동안 유지(이 탭) · 드라이브 파일 보기 권한 ${g.read ? '✓' : '✕ (목록이 비어 보일 수 있음)'} · ${app.google.folder ? '회차 폴더 안의 모든 파일' : '내 드라이브 전체의 구글 문서·txt·md·회차 파일'}</p>
     <div class="crumbs">${crumbs.map((c, i) => (i < crumbs.length - 1 ? `<button data-crumb="${i}">${esc(c.name)}</button> ›` : `<b>${esc(c.name)}</b>`)).join(' ')}</div>
     ${app.driveBusy ? '<div class="empty">불러오는 중…</div>' : ''}
     ${folders.length ? `<h3 class="muted">폴더</h3><div class="folder-row">${folders.map((f) => `<button class="folder" data-folder="${f.id}" data-name="${esc(f.name)}"><span class="fi">${ICON.folder}</span><span><b>${esc(f.name)}</b><span>폴더</span></span></button>`).join('')}</div>` : ''}
     <h3 class="muted">회차 파일</h3>
     ${shown.length ? `<div class="grid-cards">${shown.map((f) => {
       const k = drive.kindOf(f);
-      const label = k === 'episode' ? '회차' : f.mimeType === drive.MIME.doc ? '구글 문서 스크립트' : '스크립트';
+      const label = k === 'episode' ? '회차' : k === 'unsupported' ? '열 수 없는 형식' : f.mimeType === drive.MIME.doc ? '구글 문서 스크립트' : '스크립트';
+      if (k === 'unsupported') return `<div class="card" style="opacity:.55;cursor:default" title="구글 문서, .txt, .md, .moatoon.json 만 열 수 있습니다"><div class="thumb">${ICON.doc}</div><span class="badge">${label}</span><div class="meta"><b>${esc(f.name)}</b><span>${esc(f.mimeType.split('/').pop().split('.').pop())}</span></div></div>`;
       return `<div class="card" role="button" tabindex="0" data-gfile="${f.id}"><div class="thumb">${ICON.doc}</div><span class="badge">${label}</span><div class="meta"><b>${esc(f.name)}</b><span>${fmtDate(f.modifiedTime)}</span></div></div>`;
-    }).join('')}</div>` : (app.driveBusy ? '' : '<div class="empty">이 폴더에 회차 파일(구글 문서, .txt, .md, .moatoon.json)이 없습니다.</div>')}`;
+    }).join('')}</div>${unsupported.length ? `<p class="hint" style="margin-top:10px">흐리게 보이는 ${unsupported.length}개는 열 수 없는 형식입니다(Word·한글·PDF 등). 구글 문서로 열어 저장하거나 .txt 로 내려받아 주세요.</p>` : ''}` : (app.driveBusy || app.driveError ? '' : `<div class="empty">${app.google.folder ? '이 폴더가 비어 있습니다.' : '내 드라이브에서 구글 문서·txt·md·회차 파일을 찾지 못했습니다.'}<br>${g.read ? '' : '드라이브 파일 보기 권한이 없으면 이렇게 보입니다. 위의 "연결 해제" 후 다시 연결하며 권한을 모두 체크해 주세요.'}</div>`)}`;
 }
 
 function tplThumb(tpl, s) {
@@ -364,12 +369,13 @@ async function driveList() {
   try {
     const cur = app.drivePath.length ? app.drivePath[app.drivePath.length - 1].id : drive.folderIdFrom(app.google.folder);
     app.driveFiles = await drive.list(cur);
-  } catch (e) { toast(e.message); app.driveFiles = []; }
+    app.driveError = null;
+  } catch (e) { app.driveError = { code: e.code || 'other', message: e.message }; app.driveFiles = []; }
   app.driveBusy = false; renderHome();
 }
-async function driveConnect() {
+async function driveConnect(forceConsent = false) {
   app.driveError = null;
-  try { await drive.connect(app.google.clientId); app.drivePath = []; await driveList(); } catch (e) { app.driveError = { code: e.code || 'other', message: e.message }; renderHome(); }
+  try { await drive.connect(app.google.clientId, { forceConsent }); app.drivePath = []; await driveList(); } catch (e) { app.driveError = { code: e.code || 'other', message: e.message }; renderHome(); }
 }
 function driveErrorBox() {
   const e = app.driveError;
@@ -381,6 +387,13 @@ function driveErrorBox() {
     denied: `<p>Google이 접근을 거부했습니다(access_denied). 앱이 <b>테스트</b> 상태라서 <b>테스트 사용자</b>로 등록한 계정만 로그인할 수 있습니다.</p>
       <p class="hint">Google Cloud 콘솔 → Google 인증 플랫폼 → 대상 → 테스트 사용자에, 로그인 창에서 고른 계정 주소를 myaccount.google.com 에 표시된 그대로 추가하세요.</p>`,
     popup: '<p>로그인 창을 열지 못했습니다. 브라우저 주소창의 팝업 차단 아이콘에서 이 사이트의 팝업을 허용해 주세요.</p>',
+    scope: `<p><b>"Google 드라이브 파일 보기" 권한이 빠져 있습니다.</b> Google 동의 화면에서 권한마다 체크 상자가 있는데, 체크하지 않으면 이 앱이 만든 파일 말고는 보이지 않습니다.</p>
+      <div class="row"><button class="btn accent sm" data-g="reconsent">권한 다시 받기 (모두 체크)</button></div>`,
+    'api-disabled': `<p><b>Google Cloud 프로젝트에서 Google Drive API가 꺼져 있습니다.</b> 클라이언트 ID를 만든 프로젝트에서 켜야 합니다.</p>
+      <p><a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Google Drive API 페이지 열기</a> → 위쪽 프로젝트가 맞는지 확인 → <b>사용</b>. 켠 뒤 몇 분 지나 다시 시도하세요.</p>${e.message ? `<p class="hint">${esc(e.message)}</p>` : ''}`,
+    notfound: '<p>폴더를 찾지 못했습니다. "연결 설정"의 회차 폴더 주소가 맞는지, 로그인한 계정이 그 폴더를 볼 수 있는지 확인해 주세요.</p>',
+    forbidden: `<p>Google이 접근을 막았습니다.</p><p class="hint">${esc(e.message)}</p>`,
+    expired: '<p>로그인이 만료되었습니다(약 1시간). 다시 연결을 눌러 주세요.</p>',
     closed: '<p>로그인 창이 닫혔습니다. 다시 연결을 눌러 주세요.</p>',
   }[e.code] || `<p>${esc(e.message)}</p>`;
   return `<div class="connect-box" style="border-color:var(--warn);margin-bottom:14px"><b style="color:var(--warn)">연결하지 못했습니다</b>${help}</div>`;
@@ -472,6 +485,7 @@ function bindHome() {
         driveConnect();
       }
       if (act === 'connect') driveConnect();
+      if (act === 'reconsent') driveConnect(true);
       if (act === 'refresh') driveList();
       if (act === 'disconnect') { drive.disconnect(); app.driveFiles = null; renderHome(); }
       if (act === 'forget') { app.google.clientId = ''; store.lsSet(LS.google, app.google); renderHome(); }
@@ -579,21 +593,111 @@ function startNew() {
   toast('예시 스크립트로 새 회차를 만들었습니다. 왼쪽 스크립트를 고친 뒤 "배치 가이드 만들기"를 누르세요.');
 }
 
+// ── API 키: 두 칸을 나란히, 저장 상태와 연결 확인 결과를 보여 준다 ─────────
+const KEY_INFO = {
+  anthropic: { label: 'Anthropic (Claude) API 키', use: '대사 맞춤법·사실 검사, 캐릭터 활용 가이드, 그림 속 캐릭터 찾기', ph: 'sk-ant-…', where: 'console.anthropic.com → API Keys' },
+  openai: { label: 'OpenAI API 키', use: '그림 편집: 배경 채우기, 캐릭터 오려 내기, 표정 바꾸기', ph: 'sk-… 또는 sk-proj-…', where: 'platform.openai.com → API keys' },
+};
+const keyKind = (v) => (/^sk-ant-/.test(v) ? 'anthropic' : /^sk-[A-Za-z0-9_-]{10,}/.test(v) ? 'openai' : '');
+app.keyStatus = store.lsGet('moatoon.keystatus', {});
+const keyValue = (kind) => (kind === 'anthropic' ? app.apiKey : app.openaiKey);
+function setKey(kind, v) {
+  if (kind === 'anthropic') { app.apiKey = v; saveKey(); } else { app.openaiKey = v; saveOpenai(); }
+  app.keyStatus[kind] = { state: v ? 'saved' : '', at: Date.now() };
+  store.lsSet('moatoon.keystatus', app.keyStatus);
+}
+function keyRow(kind) {
+  const info = KEY_INFO[kind];
+  const v = keyValue(kind);
+  const st = app.keyStatus[kind] || {};
+  const masked = v ? `${v.slice(0, kind === 'anthropic' ? 7 : 5)}…${v.slice(-4)}` : '';
+  const status = !v ? '<span class="muted">○ 아직 없음</span>'
+    : st.state === 'checking' ? '<span style="color:var(--warn)">… 확인하는 중</span>'
+      : st.state === 'ok' ? `<span style="color:var(--ok)">✓ 연결 확인됨</span> <span class="muted">${esc(st.msg || '')}</span>`
+        : st.state === 'fail' ? `<span style="color:var(--fix)">✕ 확인 실패</span> <span class="muted">${esc(st.msg || '')}</span>`
+          : '<span>● 저장됨 · 아직 확인 안 함</span>';
+  return `<div class="field" style="border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px">
+    <span><b style="color:var(--fg)">${info.label}</b><br><small class="muted">${info.use}</small></span>
+    <div class="row" style="flex-wrap:nowrap"><label class="sr-only" for="key-${kind}">${info.label}</label><input id="key-${kind}" data-key="${kind}" type="password" autocomplete="off" placeholder="${v ? '새 키로 바꾸려면 붙여 넣기' : info.ph}" style="flex:1"><button class="btn dark sm" data-keysave="${kind}">저장</button></div>
+    <div class="row" style="font-size:12.5px">${status}${v ? ` <span class="muted">(${esc(masked)})</span><span class="grow"></span><button class="btn line sm" data-keytest="${kind}">연결 확인</button><button class="btn line sm" data-keydel="${kind}">지우기</button>` : ` <span class="muted">· 발급: ${info.where}</span>`}</div>
+  </div>`;
+}
+function keysHTML() {
+  return `${keyRow('anthropic')}${keyRow('openai')}<p class="hint">키는 이 브라우저에만 저장되고, 쓸 때 브라우저에서 각 회사 API로 바로 보냅니다. "연결 확인"은 모델 목록만 조회해서 요금이 들지 않습니다.</p>`;
+}
+function rerenderKeys() {
+  const kb = $('#keys-box');
+  if (kb && !$('#modal').hidden) kb.innerHTML = keysHTML();
+  if (app.view === 'editor' && ['settings', 'imgedit'].includes(app.ui.tab)) { const sc = $('#side').scrollTop; renderSide(); $('#side').scrollTop = sc; }
+}
+async function testKey(kind) {
+  const v = keyValue(kind);
+  if (!v) return;
+  app.keyStatus[kind] = { state: 'checking' }; rerenderKeys();
+  try {
+    if (kind === 'anthropic') {
+      const ids = await testAnthropicKey(v);
+      app.keyStatus[kind] = { state: 'ok', msg: ids.includes('claude-opus-5-5') ? 'claude-opus-5-5 사용 가능' : `모델 ${ids.length}개 조회됨`, at: Date.now() };
+    } else {
+      const ids = await testOpenAIKey(v);
+      const imgModels = ids.filter((x) => /^gpt-image/.test(x));
+      app.keyStatus[kind] = { state: 'ok', at: Date.now(), msg: ids.includes(app.openai.model) ? `${app.openai.model} 사용 가능` : imgModels.length ? `선택한 ${app.openai.model}은 목록에 없음 → 설정에서 ${imgModels[0]} 등으로 바꿔 보세요` : '키는 맞지만 이미지 모델이 목록에 보이지 않습니다. OpenAI 조직 인증·결제 등록이 필요할 수 있습니다' };
+    }
+  } catch (e) {
+    const s = e && (e.status || e.statusCode);
+    app.keyStatus[kind] = { state: 'fail', at: Date.now(), msg: s === 401 ? '키가 맞지 않습니다(401)' : (kind === 'anthropic' ? describeError(e) : e.message) };
+  }
+  store.lsSet('moatoon.keystatus', app.keyStatus);
+  rerenderKeys();
+  const st = app.keyStatus[kind];
+  toast(`${KEY_INFO[kind].label}: ${st.state === 'ok' ? '연결 확인됨' : '확인 실패'} · ${st.msg}`);
+}
+function saveKeyFrom(kind) {
+  const input = document.querySelector(`[data-key="${kind}"]`);
+  const v = (input && input.value || '').trim();
+  if (!v) { toast('키를 붙여 넣은 뒤 저장을 눌러 주세요.'); return; }
+  const actual = keyKind(v);
+  if (!actual) { toast('API 키 형식이 아닙니다. sk- 로 시작하는 키를 붙여 넣어 주세요.'); return; }
+  if (actual !== kind) {
+    setKey(actual, v);
+    toast(`${KEY_INFO[actual].label}로 보여서 그 칸에 저장했습니다. (${actual === 'anthropic' ? 'sk-ant- 로 시작' : 'sk-ant- 가 아님'})`);
+  } else {
+    setKey(kind, v);
+    toast(`${KEY_INFO[kind].label}를 저장했습니다. 연결을 확인합니다…`);
+  }
+  rerenderKeys();
+  testKey(actual);
+}
+document.addEventListener('click', (e) => {
+  const s = e.target.closest('[data-keysave]'); if (s) { saveKeyFrom(s.dataset.keysave); return; }
+  const t = e.target.closest('[data-keytest]'); if (t) { testKey(t.dataset.keytest); return; }
+  const d = e.target.closest('[data-keydel]');
+  if (d) { setKey(d.dataset.keydel, ''); rerenderKeys(); toast(`${KEY_INFO[d.dataset.keydel].label}를 지웠습니다.`); }
+});
+document.addEventListener('keydown', (e) => { const k = e.target.closest && e.target.closest('[data-key]'); if (k && e.key === 'Enter') { e.preventDefault(); saveKeyFrom(k.dataset.key); } });
+// 예전에 OpenAI 키를 Anthropic 칸에 넣었으면 제자리로 옮긴다
+if (keyKind(app.apiKey) === 'openai') {
+  if (!app.openaiKey) app.openaiKey = app.apiKey;
+  app.apiKey = ''; saveKey(); saveOpenai();
+  app.keyStatus = {}; store.lsSet('moatoon.keystatus', app.keyStatus);
+  setTimeout(() => toast('Anthropic 칸에 있던 OpenAI 키를 OpenAI 칸으로 옮겼습니다. "연결 설정"에서 확인해 주세요.'), 1200);
+}
+
 function openConnSettings() {
   openModal('연결 설정', `
-    <label class="field"><span>Anthropic API 키 (대사 검사·캐릭터 활용 가이드에 사용)</span><input id="m-key" type="password" autocomplete="off" value="${esc(app.apiKey)}" placeholder="sk-ant-…"></label>
-    <p class="hint">키는 이 브라우저에만 저장되고, 요청은 브라우저에서 Anthropic API로 바로 갑니다. 혼자 쓰는 컴퓨터에서만 쓰세요.</p>
+    <h3 style="font-size:14px">AI 키</h3>
+    <div id="keys-box">${keysHTML()}</div>
+    <h3 style="font-size:14px;margin-top:6px">Google 드라이브</h3>
     <label class="field"><span>Google OAuth 클라이언트 ID</span><input id="m-client" value="${esc(app.google.clientId)}" placeholder="…apps.googleusercontent.com"></label>
     <label class="field"><span>회차 폴더 주소 (선택)</span><input id="m-folder" value="${esc(app.google.folder)}" placeholder="https://drive.google.com/drive/folders/…"></label>
-    <div class="row"><button class="btn accent" id="m-save">저장</button></div>`, (b) => {
+    <div class="row"><button class="btn accent" id="m-save">Google 설정 저장</button></div>`, (b) => {
     $('#m-save', b).addEventListener('click', () => {
-      app.apiKey = $('#m-key', b).value.trim(); saveKey();
       const cid = $('#m-client', b).value.trim();
       if (cid !== app.google.clientId) drive.disconnect();
       app.google = { clientId: cid, folder: $('#m-folder', b).value.trim() };
       store.lsSet(LS.google, app.google);
       app.driveFiles = null; app.drivePath = [];
-      closeModal(); toast('저장했습니다.');
+      closeModal(); toast('Google 드라이브 설정을 저장했습니다.');
       if (app.view === 'home') renderHome();
     });
   });
@@ -1631,9 +1735,8 @@ function sideSettings() {
     ${PAGE_KINDS.map((k) => `<div class="kv"><label>${k.label}</label>${tplSel(k.id)}<span></span></div>`).join('')}
     <p class="hint">레이아웃 탭이나 페이지 위 아이콘으로 지금 페이지를 등록하면 여기서 고를 수 있습니다. "배치 가이드 만들기" 때 이 레이아웃으로 페이지를 만듭니다.</p></div>
     <div class="group"><h3>AI 연결</h3>
-    <label class="field"><span>Anthropic API 키</span><input id="api-key" type="password" autocomplete="off" value="${esc(app.apiKey)}" placeholder="sk-ant-…"></label>
-    <p class="hint">이 브라우저에만 저장되고, 대사 검사·캐릭터 분석 때 브라우저에서 Anthropic API로 바로 보냅니다.</p>
-    ${openaiSettingsHTML()}</div>
+    ${keysHTML()}
+    <h3>그림 편집(OpenAI) 옵션</h3>${openaiSettingsHTML()}</div>
     <div class="group" style="display:grid;gap:8px">
       <button class="btn accent wide" data-side="save-defaults">이 설정을 기본값으로 저장</button>
       <button class="btn line wide" data-side="regen">배치 가이드 다시 만들기</button>
@@ -2125,8 +2228,7 @@ async function runExpression(sticker, variantId) {
 }
 
 function openaiSettingsHTML() {
-  return `<label class="field"><span>OpenAI API 키 (그림 편집)</span><input id="oa-key" type="password" autocomplete="off" value="${esc(app.openaiKey)}" placeholder="sk-…"></label>
-    <div class="kv"><label for="oa-model">이미지 모델</label><select id="oa-model" data-oa="model">${IMAGE_MODELS.map((mdl) => `<option ${mdl === app.openai.model ? 'selected' : ''}>${mdl}</option>`).join('')}</select><span></span></div>
+  return `<div class="kv"><label for="oa-model">이미지 모델</label><select id="oa-model" data-oa="model">${IMAGE_MODELS.map((mdl) => `<option ${mdl === app.openai.model ? 'selected' : ''}>${mdl}</option>`).join('')}</select><span></span></div>
     <div class="kv"><label for="oa-quality">품질</label><select id="oa-quality" data-oa="quality">${['low', 'medium', 'high'].map((q) => `<option value="${q}" ${q === app.openai.quality ? 'selected' : ''}>${{ low: '낮음(싸고 빠름)', medium: '보통', high: '높음' }[q]}</option>`).join('')}</select><span></span></div>
     <p class="hint">키는 이 브라우저에만 저장되고 그림 편집 때 브라우저에서 OpenAI로 바로 보냅니다. 호출마다 요금이 듭니다(모델·품질·크기에 따라 다름).</p>`;
 }
@@ -2135,7 +2237,7 @@ function sideImageEdit() {
   const pn = editPanel();
   const busy = app.editBusy ? `<div class="preview-box" role="status">⏳ ${esc(app.editBusy)}</div>` : '';
   const dis = app.editBusy ? 'disabled' : '';
-  const keyBox = app.openaiKey ? '' : `<div class="issue fact" style="margin-bottom:10px"><span class="tag">OpenAI API 키가 필요합니다</span>${openaiSettingsHTML()}</div>`;
+  const keyBox = app.openaiKey ? '' : `<div class="issue fact" style="margin-bottom:10px"><span class="tag">그림 편집에는 OpenAI API 키가 필요합니다</span>${keyRow('openai')}</div>`;
   if (!pn) {
     const assets = Object.values(app.assets);
     return `<h2>그림 편집</h2>${busy}${keyBox}
@@ -2161,7 +2263,7 @@ function sideImageEdit() {
     <label class="switch" style="margin-top:6px"><input type="checkbox" data-oa="faceOnly" ${app.openai.faceOnly ? 'checked' : ''}> 표정 바꿀 때 얼굴만 고치기 (몸·손은 그대로)</label>
     <p class="hint" style="margin-top:6px">캔버스에서 레이어를 클릭하면 도구 막대에서 캐릭터를 지정하고 표정을 고를 수 있습니다. 레이어를 페이지 밖으로 끌어내면 빠집니다.</p>
     <div class="group"><h3>되돌리기</h3><button class="btn line wide" data-side="ie-reset">원본 그림으로 되돌리기</button></div>
-    ${app.openaiKey ? `<div class="group"><h3>OpenAI 설정</h3>${openaiSettingsHTML()}</div>` : ''}`;
+    ${app.openaiKey ? `<div class="group"><h3>OpenAI 설정</h3>${keyRow('openai')}${openaiSettingsHTML()}</div>` : ''}`;
 }
 
 function setTab(tab) {
