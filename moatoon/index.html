@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>모아툰 작업실</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=Black+Han+Sans&family=Do+Hyeon&family=Jua&family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;700&family=Nanum+Gothic:wght@400;700&family=Nanum+Pen+Script&family=Gaegu:wght@400;700&family=Hi+Melody&family=Gamja+Flower&family=Poor+Story&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>모아툰 작업실</div>
+  <nav class="steps" role="tablist" aria-label="작업 단계">
+    <button role="tab" data-view="setup" id="tab-setup"><b>1</b> 기본 설정</button>
+    <button role="tab" data-view="script" id="tab-script"><b>2</b> 장면 스크립트</button>
+    <button role="tab" data-view="edit" id="tab-edit"><b>3</b> 배치·편집</button>
+  </nav>
+  <div class="top-actions">
+    <button id="btn-undo" class="ghost" title="실행 취소 (Ctrl+Z)">되돌리기</button>
+    <button id="btn-export" class="primary">이미지로 내보내기</button>
+  </div>
+</header>
+
+<main>
+  <!-- 1. 기본 설정 -->
+  <section id="view-setup" class="view setup" hidden>
+    <div class="setup-grid">
+      <div class="card">
+        <h2>캔버스 크기</h2>
+        <div id="size-options" class="choice-row"></div>
+        <div class="field-row">
+          <label for="set-w">가로(px)</label><input id="set-w" type="number" min="400" max="4000" step="10">
+          <label for="set-h">세로(px)</label><input id="set-h" type="number" min="400" max="6000" step="10">
+        </div>
+        <div class="field-row">
+          <label for="set-margin">바깥 여백</label><input id="set-margin" type="range" min="0" max="120" step="2"><output id="out-margin"></output>
+        </div>
+        <div class="field-row">
+          <label for="set-gutter">컷 사이 간격</label><input id="set-gutter" type="range" min="0" max="80" step="2"><output id="out-gutter"></output>
+        </div>
+        <label class="check"><input id="set-showtitle" type="checkbox"> 맨 위에 제목 칸 두기</label>
+      </div>
+      <div class="card">
+        <h2>레이아웃</h2>
+        <div id="layout-options" class="choice-grid"></div>
+      </div>
+      <div class="card">
+        <h2>그림체</h2>
+        <p class="hint">인물은 배치를 잡기 위한 가이드 그림입니다. 완성 그림은 이 위에 직접 그리거나 다른 도구에서 덧그리세요.</p>
+        <div id="style-options" class="choice-row"></div>
+      </div>
+      <div class="card">
+        <h2>폰트 기본값</h2>
+        <div id="font-settings-setup" class="font-settings"></div>
+      </div>
+    </div>
+    <div class="setup-foot">
+      <span class="hint" id="setup-note">크기·레이아웃·여백을 바꾸면 스크립트로 가이드를 다시 만들어야 컷에 반영됩니다.</span>
+      <button class="primary" data-goto="script">다음: 장면 스크립트</button>
+    </div>
+  </section>
+
+  <!-- 2. 스크립트 -->
+  <section id="view-script" class="view script" hidden>
+    <div class="script-grid">
+      <div class="card script-editor">
+        <div class="card-head">
+          <h2>장면별 스크립트</h2>
+          <button id="btn-sample" class="ghost small">예시 불러오기</button>
+        </div>
+        <label for="script-text" class="sr-only">장면 스크립트</label>
+        <textarea id="script-text" spellcheck="false"></textarea>
+      </div>
+      <aside class="card script-help">
+        <h2>쓰는 법</h2>
+        <dl class="syntax">
+          <dt><code>제목: 월요일 아침</code></dt><dd>맨 위 제목 칸에 들어갑니다.</dd>
+          <dt><code>#1 카페, 아침</code></dt><dd>새 장면(컷)을 시작합니다. 카페·교실·사무실·거리·공원·바다·방·지하철·편의점을 알아보고 배경 가이드를 그립니다. '밤'이 있으면 어둡게 칠합니다.</dd>
+          <dt><code>민지(기쁨): 대사</code></dt><dd>인물 이름, 괄호 안 감정, 대사. 처음 나온 이름은 캐릭터 목록에 자동으로 추가됩니다.</dd>
+          <dt><code>준호(속마음): …</code></dt><dd>속마음·독백·생각은 생각 풍선과 독백 폰트로, 외침·버럭이나 '!!'로 끝나면 외침 풍선, 속삭임·작게는 점선 풍선이 됩니다.</dd>
+          <dt><code>(민지가 손을 흔든다)</code></dt><dd>괄호 지문에서 동작(손 흔들기, 달리기, 앉기, 점프, 팔짱, 만세, 가리키기, 머리 긁기, 전화)과 감정을 찾아 그 인물에게 줍니다.</dd>
+          <dt><code>내레이션: 그날 오후…</code></dt><dd>컷 왼쪽 위 네모 상자로 들어갑니다.</dd>
+        </dl>
+        <div id="script-preview" class="preview-box"></div>
+        <button id="btn-generate" class="primary wide">배치 가이드 만들기</button>
+        <p class="hint" id="generate-note">지금 편집 중인 배치는 새 가이드로 바뀝니다. 되돌리기로 되살릴 수 있습니다.</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- 3. 편집 -->
+  <section id="view-edit" class="view edit" hidden>
+    <aside class="palette" aria-label="재료">
+      <details open>
+        <summary>캐릭터</summary>
+        <div id="pal-characters" class="chips"></div>
+        <form id="form-add-char" class="add-char">
+          <label for="new-char-name" class="sr-only">새 캐릭터 이름</label>
+          <input id="new-char-name" placeholder="새 캐릭터 이름" maxlength="12" required>
+          <label for="new-char-color" class="sr-only">색</label>
+          <input id="new-char-color" type="color" value="#0c8599">
+          <button type="submit" class="small">추가</button>
+        </form>
+      </details>
+      <details open>
+        <summary>감정</summary>
+        <div id="pal-emotions" class="chips icons"></div>
+      </details>
+      <details open>
+        <summary>동작</summary>
+        <div id="pal-actions" class="chips icons"></div>
+      </details>
+      <details open>
+        <summary>말풍선</summary>
+        <div id="pal-bubbles" class="chips icons"></div>
+      </details>
+      <details>
+        <summary>폰트 (제목·대화·독백)</summary>
+        <div id="font-settings-edit" class="font-settings compact"></div>
+        <div id="pal-fonts" class="chips"></div>
+      </details>
+      <details>
+        <summary>배경</summary>
+        <div id="pal-backgrounds" class="chips"></div>
+      </details>
+      <p class="hint pal-hint">끌어서 컷에 놓으면 바닥선·빈자리에 맞춰 놓입니다. 감정·동작은 인물 위에, 폰트는 말풍선 위에 놓으세요. 클릭하면 선택한 컷이나 인물에 바로 적용됩니다.</p>
+    </aside>
+
+    <aside class="guide" aria-label="대사 가이드">
+      <div class="guide-head">
+        <h2>대사 가이드</h2>
+        <div class="guide-actions">
+          <button id="btn-check" class="small">맞춤법·사실 검사</button>
+          <button id="btn-ai" class="small ghost">Claude로 검사</button>
+        </div>
+        <div id="guide-summary" class="guide-summary"></div>
+        <details id="ai-settings" class="ai-settings">
+          <summary>Claude 검사 설정</summary>
+          <label for="api-key">Anthropic API 키</label>
+          <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-…">
+          <p class="hint">키는 이 브라우저에만 저장되고, 검사할 때 대사와 함께 Anthropic API로 바로 보내집니다. 공용 컴퓨터에서는 쓰지 마세요. Claude는 검색 없이 알고 있는 지식으로만 사실을 판단합니다.</p>
+        </details>
+      </div>
+      <div id="guide-list" class="guide-list"></div>
+    </aside>
+
+    <section class="stage-area" aria-label="모아툰 캔버스">
+      <div class="stage-bar">
+        <span id="stage-info" class="hint"></span>
+        <label class="check"><input id="toggle-guides" type="checkbox" checked> 가이드 표시</label>
+      </div>
+      <div id="stage-wrap" class="stage-wrap">
+        <svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="toolbar" class="toolbar" hidden></div>
+        <textarea id="inline-edit" class="inline-edit" hidden aria-label="대사 바로 고치기"></textarea>
+      </div>
+    </section>
+  </section>
+</main>
+
+<div id="export-modal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="export-title">
+    <div class="card-head">
+      <h2 id="export-title">이미지 내보내기</h2>
+      <button id="btn-close-export" class="ghost small">닫기</button>
+    </div>
+    <label class="check"><input id="export-guides" type="checkbox"> 배경 가이드 선도 넣기</label>
+    <p id="export-status" class="hint"></p>
+    <div class="export-img"><img id="export-img" alt="내보낸 모아툰 미리보기"></div>
+    <div class="export-foot">
+      <a id="export-download" class="button primary" download="moatoon.png">PNG 저장</a>
+      <span class="hint">저장 버튼이 안 되면 이미지를 오른쪽 클릭(휴대폰은 길게 눌러) 저장하세요.</span>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
