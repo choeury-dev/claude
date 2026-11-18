@@ -221,3 +221,54 @@ export async function basicGuide(imageUrl, name) {
     source: 'basic',
   };
 }
+
+// ── 완성 그림에서 캐릭터·말풍선 위치 찾기 ───────────────────────────────
+// Claude 는 그림을 그리지 않고 위치만 알려 준다. 위치는 대략적이므로 사용자가 상자를 조절한다.
+const REGION_SCHEMA = {
+  type: 'object', additionalProperties: false, required: ['regions'],
+  properties: {
+    regions: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false, required: ['kind', 'name', 'x', 'y', 'w', 'h'],
+        properties: {
+          kind: { type: 'string', enum: ['character', 'bubble'], description: 'character = 등장인물(동물 캐릭터 포함), bubble = 말풍선·생각풍선·글자 상자' },
+          name: { type: 'string', description: '캐릭터면 알려 준 이름 중 하나 또는 짧은 생김새 설명(예: 노란 병아리), 말풍선이면 안의 글' },
+          x: { type: 'number', description: '왼쪽 위 x, 그림 너비에 대한 비율 0~1' },
+          y: { type: 'number', description: '왼쪽 위 y, 그림 높이에 대한 비율 0~1' },
+          w: { type: 'number', description: '너비 비율 0~1' },
+          h: { type: 'number', description: '높이 비율 0~1' },
+        },
+      },
+    },
+  },
+};
+
+export async function aiFindRegions(apiKey, imageUrl, knownNames = []) {
+  const { default: Anthropic } = await import(SDK_URL);
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  const data = await shrinkForApi(imageUrl, 1536);
+  const response = await client.beta.messages.create({
+    model: 'claude-opus-5-5',
+    max_tokens: 16000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    output_config: { effort: 'medium', format: { type: 'json_schema', schema: REGION_SCHEMA } },
+    system: '너는 만화 컷을 분석한다. 그림 속 등장인물 하나하나와 말풍선 하나하나의 테두리 상자를 찾는다. 상자는 대상 전체(귀·머리 장식·손 포함)를 감싸되 너무 크지 않게 잡는다. 사람·동물·물건 캐릭터 모두 등장인물로 본다. 뒤에 흐릿하게 있는 군중은 하나로 묶지 말고 뚜렷한 인물만 고른다.',
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data } },
+        { type: 'text', text: `알고 있는 캐릭터 이름: ${knownNames.join(', ') || '(없음)'}\n이 그림의 등장인물과 말풍선 위치를 찾아 줘.` },
+      ],
+    }],
+  });
+  if (response.stop_reason === 'refusal') throw new Error('Claude 가 이 이미지를 처리하지 않았습니다.');
+  const textBlock = response.content.find((b) => b.type === 'text');
+  if (!textBlock) throw new Error('응답에 결과가 없습니다.');
+  const cl = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+  return JSON.parse(textBlock.text).regions.slice(0, 30).map((r) => ({
+    kind: r.kind === 'bubble' ? 'bubble' : 'character', name: String(r.name || '').slice(0, 40),
+    x: cl(r.x), y: cl(r.y), w: Math.max(0.01, Math.min(1 - cl(r.x), cl(r.w))), h: Math.max(0.01, Math.min(1 - cl(r.y), cl(r.h))),
+  }));
+}

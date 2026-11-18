@@ -312,3 +312,21 @@ test('페이지형 제작 대본(1페이지 · 표지 / 아래 컷 / 작은 독�
   assert.equal(res.pages[8].panels.length, 3);
   assert.equal(res.pages[11].texts.find((t) => t.slot === 'heading').text, '업무 스킬 한 뼘 성장하기');
 });
+
+test('그림 편집 레이어(sticker)·영역(region)과 편집 컷 정보가 저장·검사를 통과한다', async () => {
+  const { sanitizeEpisode } = await import('../js/sanitize.js');
+  const ep = sanitizeEpisode({ id: 'e', project: { pages: [{ id: 'p', kind: 'content', panels: [{
+    id: 'pn', x: 0, y: 0, w: 1080, h: 1350, noBorder: true, bgImage: 'a_plate', imageEdit: { original: 'a_org', plate: 'a_plate' },
+    items: [
+      { id: 's1', type: 'sticker', assetId: 'a_cut', x: 10, y: 20, w: 300, h: 400, name: '모아', charId: 'c1', versions: ['a_old', 'bad id"'] },
+      { id: 'r1', type: 'region', kind: 'bubble', name: '말풍선', x: 1, y: 2, w: 3, h: 4 },
+      { id: 's2', type: 'sticker', assetId: '"><script>', x: 0, y: 0, w: 1, h: 1 },
+    ],
+  }], texts: [] }] } });
+  const pn = ep.project.pages[0].panels[0];
+  assert.equal(pn.noBorder, true);
+  assert.deepEqual(pn.imageEdit, { original: 'a_org', plate: 'a_plate' });
+  assert.deepEqual(pn.items.map((i) => i.type), ['sticker', 'region'], '이상한 asset ID 의 레이어는 버림');
+  assert.deepEqual(pn.items[0].versions, ['a_old']);
+  assert.equal(pn.items[1].kind, 'bubble');
+});

@@ -29,6 +29,13 @@ export function characterBox(item, style) {
   return { x: item.x - f.halfW * s, y: top, w: f.halfW * 2 * s, h: item.y - top };
 }
 
+// 오려 낸 캐릭터 레이어(sticker)는 위쪽 가운데를 얼굴로 본다
+export function stickerHead(o) {
+  const w = o.w * 0.6, h = o.h * 0.4;
+  return { x: o.x + (o.w - w) / 2, y: o.y, w, h, cx: o.x + o.w / 2, cy: o.y + h / 2, r: Math.min(w, h) / 2 };
+}
+export function headOf(o, style) { return o.type === 'sticker' ? stickerHead(o) : headBox(o, style); }
+
 export function headBox(item, style) {
   if (item.aspect) {
     const b = characterBox(item, style);
@@ -191,8 +198,8 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // ideal: 원하는 중심점(드롭 위치 등). pull: ideal 에 끌리는 정도.
 export function placeBubble(panel, bubble, others, style, opts = {}) {
   const pad = 8;
-  const speaker = others.find((o) => o.id === bubble.tailTo && o.type === 'character');
-  const head = speaker ? headBox(speaker, style) : null;
+  const speaker = others.find((o) => o.id === bubble.tailTo && (o.type === 'character' || o.type === 'sticker'));
+  const head = speaker ? headOf(speaker, style) : null;
   let ideal = opts.ideal;
   if (!ideal) {
     if (bubble.kind === 'narration') ideal = { x: panel.x + bubble.w / 2 + pad, y: panel.y + bubble.h / 2 + pad };
@@ -221,10 +228,10 @@ export function placeBubble(panel, bubble, others, style, opts = {}) {
       for (const o of others) {
         if (o.id === bubble.id) continue;
         if (o.type === 'bubble') cost += (overlap(box, o) / Math.min(area, o.w * o.h)) * 150; // 말풍선끼리는 겹치지 않게
-        if (o.type === 'character') {
-          const hb = headBox(o, style);
+        if (o.type === 'character' || o.type === 'sticker') {
+          const hb = headOf(o, style);
           cost += (overlap(box, hb) / (hb.w * hb.h)) * 25; // 얼굴은 가리지 않는다
-          cost += (overlap(box, characterBox(o, style)) / area) * 10;
+          cost += (overlap(box, o.type === 'sticker' ? o : characterBox(o, style)) / area) * 10;
         }
       }
       const cx = x + bubble.w / 2, cy = y + bubble.h / 2;
@@ -280,7 +287,7 @@ export function refineCharacter(panel, item, items, style, opts = {}) {
 export function reflowBubbles(panel, style, settings, measure, onlyOverlapping = true) {
   let prev = null;
   for (const b of panel.items.filter((o) => o.type === 'bubble')) {
-    const covers = panel.items.some((o) => o.type === 'character' && overlap(b, headBox(o, style)) > 0);
+    const covers = panel.items.some((o) => (o.type === 'character' || o.type === 'sticker') && overlap(b, headOf(o, style)) > 0);
     const outside = b.x < panel.x || b.y < panel.y || b.x + b.w > panel.x + panel.w || b.y + b.h > panel.y + panel.h;
     if (!onlyOverlapping || covers || outside) {
       Object.assign(b, sizeBubble(b, panel, settings, measure));
@@ -293,8 +300,8 @@ export function reflowBubbles(panel, style, settings, measure, onlyOverlapping =
 export function nearestCharacter(panel, x, y) {
   let best = null, bd = Infinity;
   for (const o of panel.items) {
-    if (o.type !== 'character') continue;
-    const d = Math.abs(o.x - x) + Math.abs(o.y - o.size * 0.7 - y) * 0.5;
+    if (o.type !== 'character' && o.type !== 'sticker') continue;
+    const d = o.type === 'sticker' ? Math.abs(o.x + o.w / 2 - x) + Math.abs(o.y + o.h * 0.3 - y) * 0.5 : Math.abs(o.x - x) + Math.abs(o.y - o.size * 0.7 - y) * 0.5;
     if (d < bd) { bd = d; best = o; }
   }
   return best;

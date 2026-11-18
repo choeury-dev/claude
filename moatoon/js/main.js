@@ -10,7 +10,9 @@ import {
 import { renderPage, face, figure, drawImageFigure, entryCrop, entryHead, pickEntry, drawMarks } from './render.js';
 import { textureDefs, textureFilterAttr, filterDef } from './texture.js';
 import { checkLine } from './spell.js';
-import { aiCheck, aiCharacterGuide, basicGuide, describeError } from './ai.js';
+import { aiCheck, aiCharacterGuide, basicGuide, describeError, aiFindRegions } from './ai.js';
+import { IMAGE_MODELS } from './openai-image.js';
+import { fillBackground, cutOutCharacter, changeExpression, expandRect } from './image-edit.js';
 import * as store from './store.js';
 import { sanitizeEpisode, sanitizeAsset, safeImageUrl, sanitizeTemplate } from './sanitize.js';
 
@@ -64,6 +66,8 @@ const app = {
   apiKey: store.lsGet(LS.key, ''),
   google: { clientId: '', folder: '', ...store.lsGet(LS.google, {}) },
   ui: { tab: 'elements', guides: true, sideClosed: false, layersClosed: false, ...store.lsGet(LS.ui, {}) },
+  openai: { model: 'gpt-image-2.5-sunburst', quality: 'high', keepPixels: true, faceOnly: true, ...store.lsGet('moatoon.openai', {}) },
+  openaiKey: '', editBusy: '',
   assets: {}, episodes: [],
   ep: null, page: 0, selected: null, zoom: 1, zoomFit: true,
   ai: {}, aiPick: null, undo: [], redo: [],
@@ -75,7 +79,8 @@ const PG = () => P().pages[app.page];
 const saveUi = () => store.lsSet(LS.ui, app.ui);
 // 키는 예전 버전과 같은 자리에 문자열로 둔다
 const saveKey = () => { try { localStorage.setItem(LS.key, app.apiKey); } catch { /* */ } };
-try { app.apiKey = localStorage.getItem(LS.key) || ''; } catch { /* */ }
+try { app.apiKey = localStorage.getItem(LS.key) || ''; app.openaiKey = localStorage.getItem('moatoon.openai.key') || ''; } catch { /* */ }
+const saveOpenai = () => { store.lsSet('moatoon.openai', app.openai); try { localStorage.setItem('moatoon.openai.key', app.openaiKey); } catch { /* */ } };
 
 // ── 공용 UI ──────────────────────────────────────────────────────────
 let toastTimer = 0;
@@ -161,7 +166,11 @@ function refreshCharacterItems(charId) {
 function usedAssetIds(ep) {
   const ids = new Set();
   for (const c of ep.project.characters) for (const e of c.images || []) ids.add(e.assetId);
-  for (const pg of ep.project.pages) for (const pn of pg.panels) if (pn.bgImage) ids.add(pn.bgImage);
+  for (const pg of ep.project.pages) for (const pn of pg.panels) {
+    if (pn.bgImage) ids.add(pn.bgImage);
+    if (pn.imageEdit) { ids.add(pn.imageEdit.original); if (pn.imageEdit.plate) ids.add(pn.imageEdit.plate); }
+    for (const it of pn.items) if (it.type === 'sticker') { ids.add(it.assetId); for (const v of it.versions || []) ids.add(v); }
+  }
   if (ep.settings.watermark.assetId) ids.add(ep.settings.watermark.assetId);
   return [...ids];
 }
@@ -650,7 +659,7 @@ function drawPage(i, opts = {}) {
   const svg = $(`.page-svg[data-page="${i}"]`);
   if (!svg) return;
   const pg = P().pages[i];
-  const { width, height, inner } = renderPage(pg, { project: P(), settings: S(), assets: app.assets, index: i, total: P().pages.length, opts: { guides: app.ui.guides, fast: opts.fast } });
+  const { width, height, inner } = renderPage(pg, { project: P(), settings: S(), assets: app.assets, index: i, total: P().pages.length, opts: { guides: app.ui.guides, fast: opts.fast, editor: true } });
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   let sel = '';
   if (i === app.page && !opts.noSel) sel = selectionSVG();
@@ -704,14 +713,14 @@ function resizeTo(r, pt, keepRatio) {
   }
   const bounds = panel || { x: 0, y: 0, w: S().width, h: S().height };
   let w = Math.max(MIN_BUBBLE.w, Math.abs(pt.x - ax)), h = Math.max(MIN_BUBBLE.h, Math.abs(pt.y - ay));
-  if (keepRatio) { const k = Math.max(w / r.box.w, h / r.box.h); w = r.box.w * k; h = r.box.h * k; }
-  w = Math.min(w, fx ? bounds.x + bounds.w - ax : ax - bounds.x);
-  h = Math.min(h, fy ? bounds.y + bounds.h - ay : ay - bounds.y);
+  if (keepRatio || it.type === 'sticker') { const k = Math.max(w / r.box.w, h / r.box.h); w = r.box.w * k; h = r.box.h * k; }
+  if (it.type !== 'sticker') w = Math.min(w, fx ? bounds.x + bounds.w - ax : ax - bounds.x);
+  if (it.type !== 'sticker') h = Math.min(h, fy ? bounds.y + bounds.h - ay : ay - bounds.y);
   it.w = Math.round(w); it.h = Math.round(h);
   it.x = Math.round(fx ? ax : ax - it.w);
   it.y = Math.round(fy ? ay : ay - it.h);
   if (it.type === 'bubble') { it.manual = true; Object.assign(it, sizeBubble(it, panel, S(), measure)); }
-  else fitText(it);
+  else if (it.type === 'text') fitText(it);
 }
 
 // ── 컷 크기 조절과 배율 ─────────────────────────────────────────────
@@ -785,7 +794,18 @@ function renderToolbar() {
   if (s && s.kind === 'item') {
     const it = itemOf(s.id);
     if (!it) { tb.hidden = true; return; }
-    if (it.type === 'character') {
+    if (it.type === 'sticker') {
+      const ch = P().characters.find((c) => c.id === it.charId);
+      const exprs = (ch?.images || []);
+      html = `<span class="lbl">${esc(it.name || '캐릭터')} 레이어</span>
+        <select data-act="stk-char" aria-label="캐릭터">${opt([{ id: '', label: '캐릭터 고르기' }, ...P().characters.map((c) => ({ id: c.id, label: c.name }))], it.charId || '')}</select>
+        ${exprs.length ? `<select data-act="stk-expr" aria-label="바꿀 표정">${opt([{ id: '', label: '표정 고르기' }, ...exprs.map((v) => ({ id: v.id, label: v.label || EMOTIONS.find((e) => e.id === v.emotion)?.label || '표정' }))], '')}</select>` : '<span class="lbl">업로드 탭에서 표정 이미지를 등록하세요</span>'}
+        ${it.versions && it.versions.length ? '<button class="btn" data-act="stk-undo">이전 버전</button>' : ''}
+        <button class="btn danger" data-act="delete">빼기</button>`;
+    } else if (it.type === 'region') {
+      html = `<span class="lbl">영역</span><select data-act="rg-kind" aria-label="영역 종류">${opt([{ id: 'character', label: '캐릭터(레이어로 분리)' }, { id: 'bubble', label: '지울 곳(말풍선·글자)' }], it.kind)}</select>
+        <button class="btn danger" data-act="delete">삭제</button>`;
+    } else if (it.type === 'character') {
       const ch = charOf(it);
       const variants = (ch?.images || []);
       html = `<span class="lbl">${esc(ch?.name || '인물')}</span>
@@ -798,7 +818,7 @@ function renderToolbar() {
         <button class="btn danger" data-act="delete">삭제</button>`;
     } else if (it.type === 'bubble') {
       const panel = panelOf(it.id);
-      const targets = [{ id: '', label: '꼬리 없음' }, ...panel.items.filter((o) => o.type === 'character').map((o) => ({ id: o.id, label: `→ ${charOf(o)?.name || '인물'}` }))];
+      const targets = [{ id: '', label: '꼬리 없음' }, ...panel.items.filter((o) => o.type === 'character' || o.type === 'sticker').map((o) => ({ id: o.id, label: `→ ${o.type === 'sticker' ? o.name || '캐릭터' : charOf(o)?.name || '인물'}` }))];
       html = `<select data-act="kind" aria-label="말풍선 종류">${opt(BUBBLES, it.kind)}</select>
         <select data-act="tail" aria-label="말하는 인물">${opt(targets, it.tailTo || '')}</select>
         <select data-act="role" aria-label="글꼴">${opt(FONT_ROLES, bubbleRole(it))}</select>
@@ -879,7 +899,13 @@ function bindToolbar() {
     } else {
       const it = itemOf(s.id), panel = panelOf(s.id);
       if (act === 'delete') deleteItem(it.id);
-      else if (it.type === 'character') {
+      else if (it.type === 'sticker') {
+        if (act === 'stk-char') it.charId = value || null;
+        if (act === 'stk-undo' && it.versions.length) it.assetId = it.versions.pop();
+        if (act === 'stk-expr' && value) { app.undo.pop(); runExpression(it, value); return; }
+      } else if (it.type === 'region') {
+        if (act === 'rg-kind') it.kind = value;
+      } else if (it.type === 'character') {
         if (act === 'emotion') { it.emotion = value; updateItemImage(it); reflowBubbles(panel, style(), S(), measure); }
         if (act === 'variant') { if (value) it.variantId = value; else delete it.variantId; updateItemImage(it); reflowBubbles(panel, style(), S(), measure); }
         if (act === 'action') { it.action = value; reflowBubbles(panel, style(), S(), measure); }
@@ -1060,6 +1086,13 @@ function bindCanvas() {
     if (!d.moved) return;
     const pt = svgPoint(e, d.svg);
     const it = itemOf(d.id);
+    if (it.type === 'sticker' || it.type === 'region') {
+      const out = pt.x < 0 || pt.y < 0 || pt.x > S().width || pt.y > S().height;
+      if (out) { deleteItem(it.id); drawCurrent(); afterChange(); toast(it.type === 'sticker' ? `${it.name || '캐릭터'}을(를) 뺐습니다. 뒤 배경은 이미 채워져 있습니다. (Ctrl+Z로 되돌리기)` : '영역을 지웠습니다.'); return; }
+      if (it.type === 'region') { const p = panelOf(it.id); it.x = Math.round(Math.max(p.x, Math.min(p.x + p.w - it.w, it.x))); it.y = Math.round(Math.max(p.y, Math.min(p.y + p.h - it.h, it.y))); }
+      drawCurrent(); afterChange();
+      return;
+    }
     if (it.type === 'text') {
       it.x = Math.round(Math.max(0, Math.min(S().width - it.w, it.x)));
       it.y = Math.round(Math.max(0, Math.min(S().height - it.h, it.y)));
@@ -1253,8 +1286,8 @@ function renderLayers() {
   pg.panels.forEach((p, i) => {
     rows.push(`<div class="layer ${on(p.id)}" data-lpanel="${p.id}" role="button" tabindex="0"><span class="sw">${i + 1}컷</span><span class="nm">${esc(p.bgImage ? '배경 이미지' : (BACKGROUNDS.find((b) => b.id === p.background.kind)?.label || ''))}${p.zoom ? ` · 배율 ${p.zoom.toFixed(1)}×` : ''}</span></div>`);
     for (const it of p.items) {
-      const label = it.type === 'character' ? `${charOf(it)?.name || '인물'} · ${EMOTIONS.find((e) => e.id === it.emotion)?.label || ''}` : it.text;
-      rows.push(`<div class="layer sub ${on(it.id)}" data-layer="${it.id}" role="button" tabindex="0"><span class="sw">${it.type === 'character' ? '인물' : '말'}</span><span class="nm">${esc(label)}</span><button class="del" data-ldel="${it.id}" aria-label="삭제">✕</button></div>`);
+      const label = it.type === 'character' ? `${charOf(it)?.name || '인물'} · ${EMOTIONS.find((e) => e.id === it.emotion)?.label || ''}` : it.type === 'sticker' ? `${it.name || '캐릭터'} (그림 레이어)` : it.type === 'region' ? `영역 · ${it.name || ''}` : it.text;
+      rows.push(`<div class="layer sub ${on(it.id)}" data-layer="${it.id}" role="button" tabindex="0"><span class="sw">${it.type === 'character' || it.type === 'sticker' ? '인물' : it.type === 'region' ? '영역' : '말'}</span><span class="nm">${esc(label)}</span><button class="del" data-ldel="${it.id}" aria-label="삭제">✕</button></div>`);
     }
   });
   rows.push('<div class="layer" style="opacity:.7"><span class="sw">🔒</span><span class="nm">워터마크·페이지 번호 (설정에서 위치 고정)</span></div>');
@@ -1293,7 +1326,7 @@ function charIcon(c) {
 function renderSide() {
   const el = $('#side');
   const t = app.ui.tab;
-  const f = { script: sideScript, layout: sideLayout, elements: sideElements, text: sideText, upload: sideUpload, background: sideBackground, guide: sideGuide, ai: sideAi, settings: sideSettings }[t] || sideElements;
+  const f = { imgedit: sideImageEdit, script: sideScript, layout: sideLayout, elements: sideElements, text: sideText, upload: sideUpload, background: sideBackground, guide: sideGuide, ai: sideAi, settings: sideSettings }[t] || sideElements;
   el.innerHTML = f();
   if (t === 'script') renderScriptPreview();
 }
@@ -1599,7 +1632,8 @@ function sideSettings() {
     <p class="hint">레이아웃 탭이나 페이지 위 아이콘으로 지금 페이지를 등록하면 여기서 고를 수 있습니다. "배치 가이드 만들기" 때 이 레이아웃으로 페이지를 만듭니다.</p></div>
     <div class="group"><h3>AI 연결</h3>
     <label class="field"><span>Anthropic API 키</span><input id="api-key" type="password" autocomplete="off" value="${esc(app.apiKey)}" placeholder="sk-ant-…"></label>
-    <p class="hint">이 브라우저에만 저장되고, 대사 검사·캐릭터 분석 때 브라우저에서 Anthropic API로 바로 보냅니다.</p></div>
+    <p class="hint">이 브라우저에만 저장되고, 대사 검사·캐릭터 분석 때 브라우저에서 Anthropic API로 바로 보냅니다.</p>
+    ${openaiSettingsHTML()}</div>
     <div class="group" style="display:grid;gap:8px">
       <button class="btn accent wide" data-side="save-defaults">이 설정을 기본값으로 저장</button>
       <button class="btn line wide" data-side="regen">배치 가이드 다시 만들기</button>
@@ -1634,6 +1668,7 @@ function bindSide() {
       if (key === 'border.width') redrawAllMarks();
       return;
     }
+    if (t.dataset.rgName) { const r = itemOf(t.dataset.rgName); if (r) { r.name = t.value; drawPage(app.page); save(); } return; }
     if (t.dataset.wm === 'text') { S().watermark.text = t.value; $('.mark-preview svg').outerHTML = markPreview(); redrawAllMarks(); save(); return; }
     if (t.dataset.edit) {
       const found = findItemAnywhere(t.dataset.edit);
@@ -1657,6 +1692,9 @@ function bindSide() {
     if (t.dataset.border) { setSetting('border.color', t.value); redrawAllMarks(); return; }
     if (t.dataset.ptpl) { setSetting(`pageTemplates.${t.dataset.ptpl}`, t.value); return; }
     if (t.id === 'api-key') { app.apiKey = t.value.trim(); saveKey(); return; }
+    if (t.id === 'oa-key') { app.openaiKey = t.value.trim(); saveOpenai(); renderSide(); toast(app.openaiKey ? 'OpenAI 키를 저장했습니다.' : 'OpenAI 키를 지웠습니다.'); return; }
+    if (t.dataset.oa) { app.openai[t.dataset.oa] = t.type === 'checkbox' ? t.checked : t.value; saveOpenai(); return; }
+    if (t.dataset.rgKind) { const r = itemOf(t.dataset.rgKind); if (r) { snapshot(); r.kind = t.value; drawCurrent(); afterChange(); } return; }
     if (t.dataset.side === 'kind') { snapshot(); PG().kind = t.value; renderPages(); renderSide(); renderLayers(); afterChange(); return; }
     if (t.dataset.side === 'ai-owner') { app.aiOwner = t.value; return; }
     const fr = t.closest('.font-row');
@@ -1670,6 +1708,10 @@ function bindSide() {
   });
   side.addEventListener('click', async (e) => {
     const t = e.target;
+    const ld = t.closest('[data-ldel]');
+    if (ld) { snapshot(); deleteItem(ld.dataset.ldel); drawCurrent(); renderSide(); afterChange(); return; }
+    const lay = t.closest('.layer[data-layer]');
+    if (lay) { app.selected = { kind: 'item', id: lay.dataset.layer }; drawCurrent(); return; }
     const b = t.closest('button, [data-del-char], [data-del-asset], [data-del-variant], [data-del-tpl]');
     if (!b) {
       const c = t.closest('.chip');
@@ -1765,7 +1807,21 @@ function bindSide() {
       toast(b.dataset.useSel ? '선택한 인물에 적용했습니다. 원본 이미지는 그대로입니다.' : `'${u.title}'을(를) ${P().characters.find((c) => c.id === ownerId).name}의 이미지로 추가했습니다. 업로드 탭에서 끌어 쓸 수 있습니다.`);
       return;
     }
+    if (b.dataset.ieAsset) { createImagePage(b.dataset.ieAsset); return; }
+    if (b.dataset.rgDel) { snapshot(); deleteItem(b.dataset.rgDel); drawCurrent(); renderSide(); afterChange(); return; }
     const act = b.dataset.side;
+    if (act === 'ie-upload') { $('#file-edit').click(); return; }
+    if (act === 'ie-find') { runFindRegions(); return; }
+    if (act === 'ie-add-char') { addRegion('character'); return; }
+    if (act === 'ie-add-erase') { addRegion('bubble'); return; }
+    if (act === 'ie-separate') { runSeparate(); return; }
+    if (act === 'ie-reset') {
+      const pn = editPanel(); snapshot();
+      pn.bgImage = pn.imageEdit.original; delete pn.imageEdit.plate;
+      pn.items = pn.items.filter((i) => i.type !== 'sticker' && i.type !== 'region');
+      app.selected = null; drawCurrent(); renderSide(); afterChange(); toast('원본 그림으로 되돌렸습니다.');
+      return;
+    }
     if (!act) { if (b.dataset.kind && !b.dataset.apply) applyByClick(b.dataset.kind, b.dataset.value); return; }
     if (act === 'generate' || act === 'regen') {
       snapshot();
@@ -1938,6 +1994,176 @@ async function runCharGuide(useAi, btn) {
   } catch (err) { toast(describeError(err)); btn.disabled = false; btn.textContent = useAi ? 'Claude로 분석' : '기본 제안 (AI 없이)'; }
 }
 
+// ══ 그림 편집: 완성 그림 → 레이어 분리 → 표정 바꾸기 / 인물 빼기 ══════════
+// 그림은 OpenAI 이미지 편집이 그리고(배경 채우기·오려 내기·표정), 위치 찾기는 Claude, 합성은 이 앱이 한다.
+function editPanel() { return PG().panels.find((p) => p.imageEdit); }
+function imgMap(panel) {
+  const a = app.assets[panel.imageEdit.original];
+  const s = Math.max(panel.w / a.w, panel.h / a.h); // 컷을 꽉 채우게(넘치는 부분은 잘림)
+  return { a, s, ox: panel.x + (panel.w - a.w * s) / 2, oy: panel.y + (panel.h - a.h * s) / 2 };
+}
+const toImg = (m, r) => ({ x: (r.x - m.ox) / m.s, y: (r.y - m.oy) / m.s, w: r.w / m.s, h: r.h / m.s });
+const toPage = (m, r) => ({ x: Math.round(r.x * m.s + m.ox), y: Math.round(r.y * m.s + m.oy), w: Math.round(r.w * m.s), h: Math.round(r.h * m.s) });
+const openaiCfg = () => ({ apiKey: app.openaiKey, model: app.openai.model, quality: app.openai.quality });
+
+async function addAsset(result, name) {
+  const a = sanitizeAsset({ id: `a_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, url: result.url, w: result.w, h: result.h, name });
+  if (!a) throw new Error('만든 그림을 저장하지 못했습니다.');
+  app.assets[a.id] = a;
+  await store.put('assets', a);
+  return a;
+}
+function setBusy(msg) {
+  app.editBusy = msg;
+  if (app.ui.tab === 'imgedit') { const sc = $('#side').scrollTop; renderSide(); $('#side').scrollTop = sc; }
+  if (msg) toast(msg);
+}
+function needOpenai() {
+  if (app.openaiKey) return false;
+  setTab('imgedit'); toast('그림 편집 탭에서 OpenAI API 키를 먼저 넣어 주세요.');
+  return true;
+}
+
+async function createImagePage(assetId) {
+  snapshot();
+  const W = S().width, H = S().height;
+  const pg = {
+    id: uid('pg'), kind: 'content', templateId: 'auto', texts: [],
+    panels: [{ id: uid('p'), x: 0, y: 0, w: W, h: H, noBorder: true, background: { kind: 'none', night: false, label: '' }, note: '', bgImage: assetId, imageEdit: { original: assetId }, items: [] }],
+  };
+  const at = Math.min(app.page + 1, P().pages.length);
+  P().pages.splice(at, 0, pg);
+  app.page = at; app.selected = null;
+  renderPages(); renderSide(); renderLayers(); afterChange();
+  $(`.page-block[data-page="${at}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const a = app.assets[assetId];
+  const ratio = (a.w / a.h) / (W / H);
+  toast(Math.abs(ratio - 1) > 0.03 ? `그림 비율이 캔버스(${W}×${H})와 달라 가장자리가 조금 잘려 보입니다. 설정에서 캔버스 크기를 그림에 맞출 수 있습니다.` : '그림으로 새 페이지를 만들었습니다. 다음은 영역 고르기입니다.');
+}
+
+async function runFindRegions() {
+  if (!app.apiKey) { setTab('settings'); toast('캐릭터 찾기는 Claude를 씁니다. 설정 탭 "AI 연결"에 Anthropic API 키를 넣어 주세요. (직접 영역을 추가해도 됩니다)'); return; }
+  const pn = editPanel(); const m = imgMap(pn);
+  setBusy('Claude가 캐릭터와 말풍선 위치를 찾는 중…');
+  try {
+    const found = await aiFindRegions(app.apiKey, m.a.url, P().characters.map((c) => c.name));
+    snapshot();
+    pn.items = pn.items.filter((i) => i.type !== 'region');
+    for (const r of found) pn.items.push({ id: uid('i'), type: 'region', kind: r.kind, name: r.name, ...toPage(m, { x: r.x * m.a.w, y: r.y * m.a.h, w: r.w * m.a.w, h: r.h * m.a.h }) });
+    setBusy('');
+    drawCurrent(); afterChange();
+    toast(`캐릭터 ${found.filter((r) => r.kind === 'character').length}개, 지울 곳 ${found.filter((r) => r.kind === 'bubble').length}개를 찾았습니다. 상자를 끌어 위치·크기를 맞춰 주세요.`);
+  } catch (e) { setBusy(''); toast(describeError(e)); }
+}
+function addRegion(kind) {
+  const pn = editPanel();
+  snapshot();
+  const w = Math.round(pn.w * (kind === 'bubble' ? 0.35 : 0.3)), h = Math.round(pn.h * (kind === 'bubble' ? 0.15 : 0.35));
+  const r = { id: uid('i'), type: 'region', kind, name: kind === 'bubble' ? '말풍선' : `캐릭터 ${pn.items.filter((i) => i.type === 'region' && i.kind === 'character').length + 1}`, x: Math.round(pn.x + (pn.w - w) / 2), y: Math.round(pn.y + (pn.h - h) / 2), w, h };
+  pn.items.push(r);
+  app.selected = { kind: 'item', id: r.id };
+  drawCurrent(); renderSide(); afterChange();
+}
+
+async function runSeparate() {
+  if (needOpenai()) return;
+  const pn = editPanel(); const m = imgMap(pn);
+  const regions = pn.items.filter((i) => i.type === 'region');
+  if (!regions.length) { toast('먼저 캐릭터나 지울 곳 영역을 골라 주세요.'); return; }
+  const src = app.assets[pn.imageEdit.original];
+  const cfg = openaiCfg();
+  const chars = regions.filter((r) => r.kind === 'character');
+  const total = 1 + chars.length;
+  const imgRect = (r, k) => expandRect(toImg(m, r), k, src.w, src.h);
+  try {
+    setBusy(`배경 채우는 중 (1/${total}) — 영역 안의 인물·말풍선을 지우고 주변에 맞게 그립니다`);
+    const plate = await fillBackground({ cfg, imgUrl: src.url, rects: regions.map((r) => imgRect(r, r.kind === 'bubble' ? 0.04 : 0.06)) });
+    const plateAsset = await addAsset(plate, '배경(채움)');
+    snapshot();
+    pn.bgImage = plateAsset.id; pn.imageEdit.plate = plateAsset.id;
+    pn.items = pn.items.filter((i) => !(i.type === 'region' && i.kind === 'bubble'));
+    drawCurrent(); save();
+    const failed = [];
+    for (let i = 0; i < chars.length; i++) {
+      const r = chars[i];
+      setBusy(`캐릭터 오려 내는 중 (${i + 2}/${total}) — ${r.name || '캐릭터'}`);
+      try {
+        const ir = imgRect(r, 0.06);
+        const cut = await cutOutCharacter({ cfg, imgUrl: src.url, rect: ir, name: r.name, keepOriginalPixels: app.openai.keepPixels });
+        const a = await addAsset(cut, r.name || '캐릭터');
+        const ch = P().characters.find((c) => c.name && r.name && (r.name.includes(c.name) || c.name.includes(r.name)));
+        const idx = pn.items.findIndex((x) => x.id === r.id);
+        pn.items.splice(idx, 1, { id: uid('i'), type: 'sticker', assetId: a.id, ...toPage(m, ir), name: r.name || '캐릭터', charId: ch ? ch.id : null, versions: [] });
+        drawCurrent(); save();
+      } catch (e) { failed.push(`${r.name || '캐릭터'}: ${e.message}`); }
+    }
+    setBusy('');
+    renderLayers(); afterChange();
+    toast(failed.length ? `일부를 분리하지 못했습니다. ${failed[0]}` : '레이어를 분리했습니다. 캐릭터를 끌어 페이지 밖으로 빼거나, 선택해서 표정을 바꿔 보세요.');
+  } catch (e) { setBusy(''); toast(e.message); }
+}
+
+async function runExpression(sticker, variantId) {
+  if (needOpenai()) { drawCurrent(); return; }
+  const ch = P().characters.find((c) => c.id === sticker.charId);
+  const v = ch && ch.images.find((x) => x.id === variantId);
+  const ref = v && app.assets[v.assetId];
+  const cur = app.assets[sticker.assetId];
+  if (!ref || !cur) { toast('표정 이미지를 찾지 못했습니다.'); return; }
+  const label = v.label || EMOTIONS.find((e) => e.id === v.emotion)?.label || '';
+  try {
+    setBusy(`${ch.name}의 표정을 '${label}'(으)로 바꾸는 중…`);
+    const out = await changeExpression({ cfg: openaiCfg(), layerUrl: cur.url, refUrl: ref.url, emotionLabel: label, name: ch.name, faceOnly: app.openai.faceOnly });
+    const a = await addAsset(out, `${sticker.name} · ${label}`);
+    snapshot();
+    sticker.versions = [...(sticker.versions || []), sticker.assetId];
+    sticker.assetId = a.id;
+    setBusy('');
+    drawCurrent(); afterChange();
+    toast(`표정을 바꿨습니다. 마음에 안 들면 도구 막대의 "이전 버전"으로 되돌리거나 다시 바꿔 보세요.`);
+  } catch (e) { setBusy(''); toast(e.message); drawCurrent(); }
+}
+
+function openaiSettingsHTML() {
+  return `<label class="field"><span>OpenAI API 키 (그림 편집)</span><input id="oa-key" type="password" autocomplete="off" value="${esc(app.openaiKey)}" placeholder="sk-…"></label>
+    <div class="kv"><label for="oa-model">이미지 모델</label><select id="oa-model" data-oa="model">${IMAGE_MODELS.map((mdl) => `<option ${mdl === app.openai.model ? 'selected' : ''}>${mdl}</option>`).join('')}</select><span></span></div>
+    <div class="kv"><label for="oa-quality">품질</label><select id="oa-quality" data-oa="quality">${['low', 'medium', 'high'].map((q) => `<option value="${q}" ${q === app.openai.quality ? 'selected' : ''}>${{ low: '낮음(싸고 빠름)', medium: '보통', high: '높음' }[q]}</option>`).join('')}</select><span></span></div>
+    <p class="hint">키는 이 브라우저에만 저장되고 그림 편집 때 브라우저에서 OpenAI로 바로 보냅니다. 호출마다 요금이 듭니다(모델·품질·크기에 따라 다름).</p>`;
+}
+
+function sideImageEdit() {
+  const pn = editPanel();
+  const busy = app.editBusy ? `<div class="preview-box" role="status">⏳ ${esc(app.editBusy)}</div>` : '';
+  const dis = app.editBusy ? 'disabled' : '';
+  const keyBox = app.openaiKey ? '' : `<div class="issue fact" style="margin-bottom:10px"><span class="tag">OpenAI API 키가 필요합니다</span>${openaiSettingsHTML()}</div>`;
+  if (!pn) {
+    const assets = Object.values(app.assets);
+    return `<h2>그림 편집</h2>${busy}${keyBox}
+      <p class="hint">완성된 웹툰 그림을 넣으면 ① 캐릭터·말풍선 영역을 고르고 ② 캐릭터를 레이어로 분리하고(뒤 배경은 AI가 채움) ③ 등록한 표정으로 바꾸거나, 캐릭터를 끌어 페이지 밖으로 빼낼 수 있습니다.</p>
+      <button class="btn accent wide" data-side="ie-upload" ${dis} style="margin-top:10px">그림 올려서 새 페이지 만들기</button>
+      ${assets.length ? `<h3>업로드한 그림으로 시작</h3><div class="tiles">${assets.map((a) => `<button class="tile" data-ie-asset="${a.id}" title="이 그림으로 새 페이지"><img src="${safeImageUrl(a.url)}" alt="${esc(a.name)}"></button>`).join('')}</div>` : ''}
+      <p class="hint" style="margin-top:10px">표정 바꾸기를 쓰려면 업로드 탭에서 캐릭터별 표정 이미지(예: 감사)를 먼저 등록해 두세요.</p>`;
+  }
+  const regions = pn.items.filter((i) => i.type === 'region');
+  const stickers = pn.items.filter((i) => i.type === 'sticker');
+  const nChar = regions.filter((r) => r.kind === 'character').length;
+  return `<h2>그림 편집</h2>${busy}${keyBox}
+    <h3>1. 영역 고르기</h3>
+    <div class="row"><button class="btn dark sm" data-side="ie-find" ${dis}>Claude로 찾기</button><button class="btn line sm" data-side="ie-add-char">＋ 캐릭터 영역</button><button class="btn line sm" data-side="ie-add-erase">＋ 지울 곳</button></div>
+    <p class="hint" style="margin-top:6px">청록 상자 = 레이어로 분리할 캐릭터, 주황 상자 = 지울 곳(말풍선·글자). 상자를 끌고 모서리로 크기를 맞추세요. 상자는 캐릭터 전체를 넉넉히 감싸야 합니다.</p>
+    ${regions.map((r) => `<div class="row" style="margin-top:6px;flex-wrap:nowrap"><label class="sr-only" for="rgn-${r.id}">영역 이름</label><input id="rgn-${r.id}" data-rg-name="${r.id}" value="${esc(r.name)}" style="flex:1"><select data-rg-kind="${r.id}" aria-label="영역 종류">${opt([{ id: 'character', label: '캐릭터' }, { id: 'bubble', label: '지울 곳' }], r.kind)}</select><button class="icon-btn" data-rg-del="${r.id}" aria-label="영역 삭제"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>`).join('')}
+    <h3>2. 레이어 분리</h3>
+    <label class="switch"><input type="checkbox" data-oa="keepPixels" ${app.openai.keepPixels ? 'checked' : ''}> 캐릭터는 원본 그림 그대로 쓰기 (AI는 윤곽만)</label>
+    <button class="btn accent wide" data-side="ie-separate" ${dis || (regions.length ? '' : 'disabled')} style="margin-top:8px">레이어 분리하기 · OpenAI 호출 ${regions.length ? 1 + nChar : 0}번</button>
+    <p class="hint" style="margin-top:6px">배경 채우기 1번 + 캐릭터마다 1번 호출합니다. 영역 밖의 배경은 원본 그대로 두고 영역 안만 AI가 채웁니다.</p>
+    <h3>3. 레이어 <span class="muted">${stickers.length}개</span></h3>
+    ${stickers.length ? stickers.map((st) => `<div class="layer" data-layer="${st.id}" role="button" tabindex="0"><span class="sw"><img src="${safeImageUrl(app.assets[st.assetId]?.url)}" alt="" style="width:100%;height:100%;object-fit:contain"></span><span class="nm">${esc(st.name)}${st.charId ? ` · ${esc(P().characters.find((c) => c.id === st.charId)?.name || '')}` : ' · 캐릭터 미지정'}</span><button class="del" data-ldel="${st.id}" aria-label="빼기">✕</button></div>`).join('') : '<p class="hint">분리하면 여기에 캐릭터 레이어가 생깁니다.</p>'}
+    <label class="switch" style="margin-top:6px"><input type="checkbox" data-oa="faceOnly" ${app.openai.faceOnly ? 'checked' : ''}> 표정 바꿀 때 얼굴만 고치기 (몸·손은 그대로)</label>
+    <p class="hint" style="margin-top:6px">캔버스에서 레이어를 클릭하면 도구 막대에서 캐릭터를 지정하고 표정을 고를 수 있습니다. 레이어를 페이지 밖으로 끌어내면 빠집니다.</p>
+    <div class="group"><h3>되돌리기</h3><button class="btn line wide" data-side="ie-reset">원본 그림으로 되돌리기</button></div>
+    ${app.openaiKey ? `<div class="group"><h3>OpenAI 설정</h3>${openaiSettingsHTML()}</div>` : ''}`;
+}
+
 function setTab(tab) {
   if (app.ui.tab === tab && !app.ui.sideClosed) { app.ui.sideClosed = true; }
   else { app.ui.tab = tab; app.ui.sideClosed = false; }
@@ -2051,6 +2277,12 @@ function bindEditor() {
   $('#zoom-out').addEventListener('click', () => setZoom(app.zoom / 1.15));
   $('#zoom-fit').addEventListener('click', () => { app.zoomFit = true; applyZoom(); drawPage(app.page); });
   $('#file-image').addEventListener('change', (e) => { uploadFiles(e.target.files); e.target.value = ''; });
+  $('#file-edit').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    try { const a = await store.readImage(f, 2400); app.assets[a.id] = a; await store.put('assets', a); createImagePage(a.id); } catch (err) { toast(err.message); }
+  });
   const ie = $('#inline-edit');
   ie.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); commitInlineEdit(); }

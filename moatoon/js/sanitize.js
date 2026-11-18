@@ -88,6 +88,13 @@ function sanitizeItem(it) {
     if (h) o.head = h;
     return o;
   }
+  if (it.type === 'sticker') {
+    if (!id(it.assetId)) return null;
+    return { id: it.id, type: 'sticker', assetId: it.assetId, ...box(it), name: str(it.name, 40), charId: id(it.charId), versions: (Array.isArray(it.versions) ? it.versions : []).filter((v) => id(v)).slice(-20) };
+  }
+  if (it.type === 'region') {
+    return { id: it.id, type: 'region', kind: pick(it.kind, ['character', 'bubble'], 'character'), name: str(it.name, 40), ...box(it) };
+  }
   if (it.type === 'bubble') {
     const o = { id: it.id, type: 'bubble', kind: pick(it.kind, ids(BUBBLES), 'speech'), text: str(it.text), tailTo: id(it.tailTo), ...box(it) };
     if (it.fontRole) o.fontRole = pick(it.fontRole, ids(FONT_ROLES), 'dialogue');
@@ -123,6 +130,8 @@ function sanitizePanel(p) {
   };
   if (p.drop != null) o.drop = num(p.drop, -BIG, BIG, 0);
   if (id(p.bgImage)) o.bgImage = p.bgImage;
+  if (p.noBorder) o.noBorder = true;
+  if (p.imageEdit && typeof p.imageEdit === 'object' && id(p.imageEdit.original)) o.imageEdit = { original: p.imageEdit.original, ...(id(p.imageEdit.plate) ? { plate: p.imageEdit.plate } : {}) };
   if (p.zoom != null) o.zoom = num(p.zoom, 1, 5, 1);
   if (p.focus && typeof p.focus === 'object') o.focus = { x: num(p.focus.x, -BIG, BIG, 0), y: num(p.focus.y, -BIG, BIG, 0) };
   return o;

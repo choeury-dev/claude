@@ -1,6 +1,6 @@
 // 프로젝트를 SVG 문자열로 그린다. 편집 화면과 이미지 내보내기가 같은 함수를 쓴다.
 
-import { FIGURE, figureScale, headBox, characterBox, bubbleRole, titleHeight } from './layout.js';
+import { FIGURE, figureScale, headBox, headOf, characterBox, bubbleRole, titleHeight } from './layout.js';
 import { textureDefs, textureFilterAttr, hasPaper, filterDef } from './texture.js';
 import { safeImageUrl } from './sanitize.js';
 
@@ -167,7 +167,7 @@ function tailTarget(item, panel, style) {
   if (!item.tailTo) return null;
   const c = panel.items.find((o) => o.id === item.tailTo);
   if (!c) return null;
-  const h = headBox(c, style);
+  const h = headOf(c, style);
   return { x: h.cx, y: h.y + h.r * 0.2, r: h.r };
 }
 
@@ -458,7 +458,7 @@ export function renderPage(page, ctx) {
     const clip = `clip_${p.id}`;
     parts.push(`<clipPath id="${clip}"><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"/></clipPath>`);
     parts.push(`<g class="panel" data-panel="${p.id}"><rect class="panel-bg" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="#fff"/>`);
-    parts.push(`<g clip-path="url(#${clip})"><g${tex}>`);
+    parts.push(`<g clip-path="url(#${clip})"><g${p.imageEdit ? '' : tex}>`);
     const bgA = p.bgImage && assets[p.bgImage];
     const zf = p.zoom > 1 && p.focus;
     if (zf) parts.push(`<g transform="translate(${f1(p.focus.x)} ${f1(p.focus.y)}) scale(${p.zoom}) translate(${f1(-p.focus.x)} ${f1(-p.focus.y)})">`);
@@ -467,6 +467,10 @@ export function renderPage(page, ctx) {
     if (zf) parts.push('</g>');
     for (const it of p.items) {
       if (it.type === 'character') parts.push(drawCharacterAny(it, project.characters.find((c) => c.id === it.charId), settings, assets, opts));
+      if (it.type === 'sticker') {
+        const a = assets[it.assetId];
+        if (a) parts.push(`<g class="item sticker" data-id="${it.id}"><image href="${safeImageUrl(a.url)}" x="${f1(it.x)}" y="${f1(it.y)}" width="${f1(it.w)}" height="${f1(it.h)}" preserveAspectRatio="none"/><rect class="hit" x="${f1(it.x)}" y="${f1(it.y)}" width="${f1(it.w)}" height="${f1(it.h)}" fill="transparent"/></g>`);
+      }
     }
     parts.push('</g>');
     if (opts.guides && !bgA && p.background && p.background.kind !== 'none') {
@@ -474,8 +478,13 @@ export function renderPage(page, ctx) {
     }
     parts.push('</g>');
     for (const it of p.items) if (it.type === 'bubble') parts.push(drawBubble(it, p, settings, opts));
-    parts.push(`<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="none" stroke="${esc(border.color)}" stroke-width="${border.width}"${opts.fast ? '' : textureFilterAttr(border.texture)} pointer-events="none"/>`);
-    if (opts.guides) parts.push(`<text class="guide-label" x="${p.x + 10}" y="${p.y + p.h - 10}" font-size="16" fill="#98a2b3" font-family="IBM Plex Sans KR, sans-serif" pointer-events="none">${i + 1}컷</text>`);
+    // 그림 편집에서 고른 영역(편집 화면에서만 보임)
+    if (opts.editor) for (const it of p.items) if (it.type === 'region') {
+      const col = it.kind === 'bubble' ? '#e8590c' : '#0b98a8';
+      parts.push(`<g class="item region" data-id="${it.id}"><rect x="${f1(it.x)}" y="${f1(it.y)}" width="${f1(it.w)}" height="${f1(it.h)}" fill="${col}" fill-opacity="0.12" stroke="${col}" stroke-width="4" stroke-dasharray="14 8"/><text x="${f1(it.x + 8)}" y="${f1(it.y + 26)}" font-size="22" font-weight="700" fill="${col}" font-family="IBM Plex Sans KR, sans-serif" paint-order="stroke" stroke="#fff" stroke-width="5">${esc((it.kind === 'bubble' ? '지울 곳 · ' : '') + (it.name || '캐릭터'))}</text></g>`);
+    }
+    if (!p.noBorder) parts.push(`<rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="none" stroke="${esc(border.color)}" stroke-width="${border.width}"${opts.fast ? '' : textureFilterAttr(border.texture)} pointer-events="none"/>`);
+    if (opts.guides && !p.noBorder) parts.push(`<text class="guide-label" x="${p.x + 10}" y="${p.y + p.h - 10}" font-size="16" fill="#98a2b3" font-family="IBM Plex Sans KR, sans-serif" pointer-events="none">${i + 1}컷</text>`);
     parts.push('</g>');
   });
   for (const t of page.texts || []) parts.push(drawText(t, settings));
