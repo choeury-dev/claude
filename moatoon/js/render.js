@@ -454,8 +454,11 @@ export function renderPage(page, ctx) {
     parts.push(`<g class="panel" data-panel="${p.id}"><rect class="panel-bg" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="#fff"/>`);
     parts.push(`<g clip-path="url(#${clip})"><g${tex}>`);
     const bgA = p.bgImage && assets[p.bgImage];
+    const zf = p.zoom > 1 && p.focus;
+    if (zf) parts.push(`<g transform="translate(${f1(p.focus.x)} ${f1(p.focus.y)}) scale(${p.zoom}) translate(${f1(-p.focus.x)} ${f1(-p.focus.y)})">`);
     if (bgA) parts.push(`<image href="${bgA.url}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" preserveAspectRatio="xMidYMid slice"/>`);
     else if (opts.background !== false) parts.push(drawBackground(p.background || { kind: 'none' }, p));
+    if (zf) parts.push('</g>');
     for (const it of p.items) {
       if (it.type === 'character') parts.push(drawCharacterAny(it, project.characters.find((c) => c.id === it.charId), settings, assets, opts));
     }

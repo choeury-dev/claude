@@ -5,7 +5,7 @@ import {
 import { parseScript } from './script.js';
 import {
   uid, sizeBubble, placeBubble, refineCharacter, reflowBubbles, nearestCharacter, characterBox,
-  defaultCharSize, groundY, layoutRows, bubbleRole, layoutText, MIN_BUBBLE, computePanels,
+  defaultCharSize, groundY, layoutRows, bubbleRole, layoutText, MIN_BUBBLE, computePanels, headBox,
 } from './layout.js';
 import { renderPage, face, figure, drawImageFigure, entryCrop, entryHead, pickEntry, drawMarks } from './render.js';
 import { textureDefs, textureFilterAttr } from './texture.js';
@@ -554,7 +554,7 @@ function selectionSVG() {
   }
   if (s.kind === 'panel') {
     const p = PG().panels.find((x) => x.id === s.id);
-    if (p) return `<rect class="sel-box" x="${p.x - 5}" y="${p.y - 5}" width="${p.w + 10}" height="${p.h + 10}"/>`;
+    if (p) return `<rect class="sel-box" x="${p.x - 5}" y="${p.y - 5}" width="${p.w + 10}" height="${p.h + 10}"/>` + handlesSVG(p);
   }
   return '';
 }
@@ -593,6 +593,53 @@ function resizeTo(r, pt, keepRatio) {
   it.y = Math.round(fy ? ay : ay - it.h);
   if (it.type === 'bubble') { it.manual = true; Object.assign(it, sizeBubble(it, panel, S(), measure)); }
   else fitText(it);
+}
+
+// ── 컷 크기 조절과 배율 ─────────────────────────────────────────────
+// 컷 모서리를 끌면 반대쪽 모서리를 고정하고 컷 크기를 바꾼다. 안의 인물·말풍선은 처음 크기 기준 비율로 따라 움직인다.
+function mapPanelItems(panel, o, items, focus, drop) {
+  const sx = panel.w / o.w, sy = panel.h / o.h, k = Math.min(sx, sy);
+  const mx = (x) => panel.x + (x - o.x) * sx, my = (y) => panel.y + (y - o.y) * sy;
+  panel.items = items.map((it) => {
+    const n = { ...it, x: mx(it.x), y: my(it.y) };
+    if (it.type === 'character') { n.x = mx(it.x); n.size = Math.max(30, it.size * k); }
+    if (it.type === 'bubble' && it.manual) { n.w = Math.min(it.w, panel.w - 16); n.h = Math.min(it.h, panel.h - 16); }
+    return n;
+  });
+  if (focus) panel.focus = { x: mx(focus.x), y: my(focus.y) };
+  if (drop) panel.drop = drop * k;
+}
+function resizePanelTo(r, pt, keepRatio) {
+  const panel = PG().panels.find((p) => p.id === r.panelId);
+  const o = r.orig, [fx, fy] = CORNERS[r.corner];
+  const ax = o.x + o.w * (1 - fx), ay = o.y + o.h * (1 - fy);
+  const W = S().width, H = S().height, MIN = 80;
+  let w = Math.max(MIN, Math.abs(pt.x - ax)), h = Math.max(MIN, Math.abs(pt.y - ay));
+  if (keepRatio) { const k = Math.max(w / o.w, h / o.h); w = o.w * k; h = o.h * k; }
+  w = Math.min(w, fx ? W - ax : ax);
+  h = Math.min(h, fy ? H - ay : ay);
+  Object.assign(panel, { x: Math.round(fx ? ax : ax - w), y: Math.round(fy ? ay : ay - h), w: Math.round(w), h: Math.round(h) });
+  mapPanelItems(panel, o, r.items, r.focus, r.drop);
+}
+
+// 배율: 클로즈업 장면에서 컷 안의 그림(배경·인물)을 기준점(인물 얼굴) 쪽으로 키운다. 말풍선 글자 크기는 그대로.
+function defaultFocus(panel) {
+  const heads = panel.items.filter((i) => i.type === 'character').map((c) => headBox(c, style()));
+  if (!heads.length) return { x: panel.x + panel.w / 2, y: panel.y + panel.h / 2 };
+  return { x: heads.reduce((a, h) => a + h.cx, 0) / heads.length, y: heads.reduce((a, h) => a + h.cy, 0) / heads.length };
+}
+function setPanelZoom(panel, z) {
+  const z0 = panel.zoom || 1;
+  if (!panel.focus || z0 === 1) panel.focus = defaultFocus(panel);
+  const f = panel.focus, k = z / z0;
+  for (const it of panel.items) {
+    if (it.type !== 'character') continue;
+    it.x = f.x + (it.x - f.x) * k;
+    it.y = f.y + (it.y - f.y) * k;
+    it.size = Math.max(10, it.size * k);
+  }
+  panel.zoom = Math.round(z * 100) / 100;
+  if (panel.zoom === 1) { delete panel.zoom; delete panel.focus; }
 }
 
 // ── 확대·축소 ────────────────────────────────────────────────────────
@@ -654,6 +701,7 @@ function renderToolbar() {
     if (!p) { tb.hidden = true; return; }
     html = `<span class="lbl">${PG().panels.indexOf(p) + 1}컷</span>
       <select data-act="bg" aria-label="배경 가이드">${opt(BACKGROUNDS, p.background.kind)}</select>
+      <span class="lbl">배율</span><input type="range" data-act="zoom" min="1" max="3" step="0.1" value="${p.zoom || 1}" aria-label="컷 배율 (클로즈업)" style="width:90px"><span class="lbl" id="zoom-val">${(p.zoom || 1).toFixed(1)}×</span>
       <label class="lbl"><input type="checkbox" data-act="night" ${p.background.night ? 'checked' : ''}> 밤</label>
       ${p.bgImage ? '<button class="btn" data-act="bgclear">배경 이미지 빼기</button>' : ''}
       <button class="btn" data-act="narr">내레이션 추가</button>
@@ -694,14 +742,16 @@ function deleteItem(id) {
   if (app.selected && app.selected.id === id) app.selected = null;
 }
 
+let zoomSnap = false;
 function bindToolbar() {
   const tb = $('#toolbar');
   const run = (act, value) => {
     const s = app.selected;
     if (!s) return;
-    snapshot();
+    if (act !== 'zoom') snapshot();
     if (s.kind === 'panel') {
       const p = PG().panels.find((x) => x.id === s.id);
+      if (act === 'zoom') { zoomSnap = false; setPanelZoom(p, Number(value)); reflowBubbles(p, style(), S(), measure); toast(p.zoom ? `배율 ${p.zoom.toFixed(1)}× : 인물 얼굴을 기준으로 키웠습니다. 말풍선 글자 크기는 그대로입니다.` : '배율을 원래대로 돌렸습니다.'); }
       if (act === 'bg') { const b = BACKGROUNDS.find((x) => x.id === value); p.background = { ...p.background, kind: value, label: b.label }; }
       if (act === 'night') p.background.night = value;
       if (act === 'bgclear') delete p.bgImage;
@@ -738,6 +788,16 @@ function bindToolbar() {
   };
   tb.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (b) run(b.dataset.act); });
   tb.addEventListener('change', (e) => { const el = e.target; if (el.dataset.act) run(el.dataset.act, el.type === 'checkbox' ? el.checked : el.value); });
+  // 배율 슬라이더는 끄는 동안 바로 보여 준다
+  tb.addEventListener('input', (e) => {
+    const el = e.target;
+    if (el.dataset.act !== 'zoom' || app.selected?.kind !== 'panel') return;
+    const p = PG().panels.find((x) => x.id === app.selected.id);
+    if (!zoomSnap) { snapshot(); zoomSnap = true; }
+    setPanelZoom(p, Number(el.value));
+    $('#zoom-val').textContent = `${Number(el.value).toFixed(1)}×`;
+    drawPage(app.page, { fast: true });
+  });
 }
 function afterChange() {
   updateUndoButtons(); save();
@@ -809,6 +869,12 @@ function bindCanvas() {
     if (i !== app.page) { const old = app.page; app.page = i; app.selected = null; drawPage(old); markCurrent(); if (['layout', 'settings'].includes(app.ui.tab)) renderSide(); }
     const pt = svgPoint(e, svg);
     const h = e.target.closest('.handle');
+    if (h && app.selected?.kind === 'panel') {
+      const p = PG().panels.find((x) => x.id === app.selected.id);
+      resize = { svg, panelId: p.id, corner: h.dataset.corner, orig: { x: p.x, y: p.y, w: p.w, h: p.h }, items: clone(p.items), focus: p.focus && { ...p.focus }, drop: p.drop, moved: false };
+      svg.setPointerCapture(e.pointerId); e.preventDefault();
+      return;
+    }
     if (h && app.selected?.kind === 'item') {
       const it = itemOf(app.selected.id);
       const box = it.type === 'character' ? characterBox(it, style()) : { x: it.x, y: it.y, w: it.w, h: it.h };
@@ -834,7 +900,8 @@ function bindCanvas() {
   pagesEl.addEventListener('pointermove', (e) => {
     if (resize) {
       if (!resize.moved) { snapshot(); resize.moved = true; $('#toolbar').hidden = true; }
-      resizeTo(resize, svgPoint(e, resize.svg), e.shiftKey);
+      if (resize.panelId) resizePanelTo(resize, svgPoint(e, resize.svg), e.shiftKey);
+      else resizeTo(resize, svgPoint(e, resize.svg), e.shiftKey);
       drawPage(app.page, { fast: true });
       return;
     }
@@ -852,6 +919,18 @@ function bindCanvas() {
     if (resize) {
       const r = resize; resize = null;
       if (!r.moved) return;
+      if (r.panelId) {
+        const p = PG().panels.find((x) => x.id === r.panelId);
+        let prev = null;
+        for (const b of p.items.filter((x) => x.type === 'bubble')) {
+          Object.assign(b, sizeBubble(b, p, S(), measure));
+          placeBubble(p, b, p.items, style(), { prev, ideal: { x: b.x + b.w / 2, y: b.y + b.h / 2 }, pull: 2 });
+          prev = b;
+        }
+        drawCurrent(); afterChange();
+        toast('컷 크기를 바꿨습니다. 인물과 말풍선이 따라 움직였습니다. (Shift: 비율 유지)');
+        return;
+      }
       const it = itemOf(r.id);
       if (it.type === 'character') reflowBubbles(panelOf(r.id), style(), S(), measure);
       drawCurrent(); afterChange();
@@ -877,7 +956,7 @@ function bindCanvas() {
       if (it.type === 'bubble' && it.tailTo && !to.items.some((o) => o.id === it.tailTo)) it.tailTo = nearestCharacter(to, it.x, it.y)?.id || null;
     }
     if (it.type === 'character') {
-      refineCharacter(to, it, to.items, style(), { keepSize: to === from, free: e.altKey, keepFlip: to === from });
+      refineCharacter(to, it, to.items, style(), { keepSize: to === from, free: e.altKey || (to.zoom || 1) > 1, keepFlip: to === from });
       reflowBubbles(to, style(), S(), measure);
     } else {
       if (to !== from) Object.assign(it, sizeBubble(it, to, S(), measure));
@@ -970,6 +1049,7 @@ function applyMaterial({ kind, value }, panel, pt, hit) {
       if (variantId) { it.variantId = variantId; it.emotion = ch.images.find((v) => v.id === variantId)?.emotion || 'neutral'; }
       updateItemImage(it);
       refineCharacter(panel, it, panel.items, style(), { keepSize: true });
+      if ((panel.zoom || 1) > 1) { const f = panel.focus; it.size *= panel.zoom; it.y = f.y + (it.y - f.y) * panel.zoom; }
       panel.items.push(it);
       reflowBubbles(panel, style(), S(), measure);
       app.selected = { kind: 'item', id: it.id };
@@ -1052,7 +1132,7 @@ function renderLayers() {
   const rows = [];
   for (const t of pg.texts) rows.push(`<div class="layer ${on(t.id)}" data-layer="${t.id}" role="button" tabindex="0"><span class="sw">글</span><span class="nm">${esc(t.text.split('\n')[0] || '(빈 글)')}</span><button class="del" data-ldel="${t.id}" aria-label="삭제">✕</button></div>`);
   pg.panels.forEach((p, i) => {
-    rows.push(`<div class="layer ${on(p.id)}" data-lpanel="${p.id}" role="button" tabindex="0"><span class="sw">${i + 1}컷</span><span class="nm">${esc(p.bgImage ? '배경 이미지' : (BACKGROUNDS.find((b) => b.id === p.background.kind)?.label || ''))}</span></div>`);
+    rows.push(`<div class="layer ${on(p.id)}" data-lpanel="${p.id}" role="button" tabindex="0"><span class="sw">${i + 1}컷</span><span class="nm">${esc(p.bgImage ? '배경 이미지' : (BACKGROUNDS.find((b) => b.id === p.background.kind)?.label || ''))}${p.zoom ? ` · 배율 ${p.zoom.toFixed(1)}×` : ''}</span></div>`);
     for (const it of p.items) {
       const label = it.type === 'character' ? `${charOf(it)?.name || '인물'} · ${EMOTIONS.find((e) => e.id === it.emotion)?.label || ''}` : it.text;
       rows.push(`<div class="layer sub ${on(it.id)}" data-layer="${it.id}" role="button" tabindex="0"><span class="sw">${it.type === 'character' ? '인물' : '말'}</span><span class="nm">${esc(label)}</span><button class="del" data-ldel="${it.id}" aria-label="삭제">✕</button></div>`);

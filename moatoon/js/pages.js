@@ -113,6 +113,7 @@ export function applyRects(page, rects, settings, measure) {
     if (!o) return emptyPanel(r);
     const sx = r.w / o.w, sy = r.h / o.h, s = Math.min(sx, sy);
     const panel = { ...o, ...r, drop: o.drop ? o.drop * s : 0 };
+    if (o.focus) panel.focus = { x: r.x + (o.focus.x - o.x) * sx, y: r.y + (o.focus.y - o.y) * sy };
     panel.items = o.items.map((it) => {
       const n = { ...it };
       if (it.type === 'character') {
