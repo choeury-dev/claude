@@ -15,7 +15,13 @@ export const FIGURE = {
 
 export function figureScale(item) { return item.size / 200; }
 
+// 업로드한 캐릭터 이미지를 쓰는 인물: item.aspect(가로/세로)와 item.head(얼굴 위치, 비율)가 있다.
+// item.size 는 이미지 높이, item.x 는 가운데, item.y 는 아래 끝이다.
 export function characterBox(item, style) {
+  if (item.aspect) {
+    const w = item.size * item.aspect;
+    return { x: item.x - w / 2, y: item.y - item.size, w, h: item.size };
+  }
   const f = FIGURE[style] || FIGURE.sd;
   const s = figureScale(item);
   const lift = item.action === 'jump' ? 30 : item.action === 'sit' ? -28 : 0;
@@ -24,6 +30,14 @@ export function characterBox(item, style) {
 }
 
 export function headBox(item, style) {
+  if (item.aspect) {
+    const b = characterBox(item, style);
+    const h = item.head || { x: 0.2, y: 0, w: 0.6, h: 0.35 };
+    const hx = item.flip ? 1 - h.x - h.w : h.x;
+    const w = b.w * h.w, hh = b.h * h.h;
+    const r = Math.min(w, hh) / 2;
+    return { x: b.x + b.w * hx, y: b.y + b.h * h.y, w, h: hh, cx: b.x + b.w * (hx + h.w / 2), cy: b.y + b.h * (h.y + h.h / 2), r };
+  }
   const f = FIGURE[style] || FIGURE.sd;
   const s = figureScale(item);
   const lift = item.action === 'jump' ? 30 : item.action === 'sit' ? -28 : 0;
@@ -229,7 +243,7 @@ export function refineCharacter(panel, item, items, style, opts = {}) {
   const chars = items.filter((o) => o.type === 'character' && o.id !== item.id);
   if (!opts.keepSize) item.size = defaultCharSize(panel, chars.length + 1);
   if (!opts.free) item.y = Math.round(groundY(panel));
-  const half = (FIGURE[style] || FIGURE.sd).halfW * figureScale(item);
+  const half = characterBox(item, style).w / 2;
   const lo = panel.x + half * 0.9, hi = panel.x + panel.w - half * 0.9;
   const want = clamp(item.x, lo, hi);
   const gap = half * 1.7;
@@ -280,6 +294,58 @@ export function mergeCharacters(existing, names) {
   return list;
 }
 
+// 장면 하나를 컷 하나에 채운다: 인물 배치 → 말풍선 배치.
+// prepareItem(item): 업로드 이미지가 있는 캐릭터면 aspect/head 를 채우는 함수(없어도 됨).
+export function fillPanel(panel, scene, characters, settings, measure, prepareItem) {
+  panel.background = { ...scene.background };
+  panel.note = [scene.desc, ...scene.notes].filter(Boolean).join(' / ');
+  const cast = scene.cast;
+  const size = defaultCharSize(panel, cast.length);
+  // 말풍선이 차지할 넓이를 미리 재 보고, 많으면 인물을 내려서 위쪽 공간을 비운다
+  const bubbleArea = scene.lines.reduce((a, l) => {
+    const t = sizeBubble({ kind: l.kind, text: l.text }, panel, settings, measure);
+    return a + t.w * t.h;
+  }, 0);
+  const crowd = bubbleArea / (panel.w * panel.h);
+  if (cast.length && crowd > 0.18) panel.drop = Math.round(size * Math.min(0.42, (crowd - 0.1) * 1.2));
+  cast.forEach((m, k) => {
+    const ch = characters.find((c) => c.name === m.name);
+    const x = panel.x + (panel.w * (k + 1)) / (cast.length + 1);
+    const item = { id: uid('i'), type: 'character', charId: ch.id, emotion: m.emotion || 'neutral', action: m.action || 'stand', x, y: groundY(panel), size, flip: false };
+    item.flip = cast.length > 1 && x > panel.x + panel.w / 2;
+    if (prepareItem) prepareItem(item);
+    panel.items.push(item);
+  });
+  let prev = null;
+  for (const line of scene.lines) {
+    const speakerChar = line.speaker && characters.find((c) => c.name === line.speaker);
+    const target = speakerChar && panel.items.find((o) => o.type === 'character' && o.charId === speakerChar.id);
+    const b = { id: uid('i'), type: 'bubble', kind: line.kind, text: line.text, tailTo: target ? target.id : null, x: panel.x, y: panel.y, w: 10, h: 10 };
+    Object.assign(b, sizeBubble(b, panel, settings, measure));
+    placeBubble(panel, b, panel.items, settings.style, { prev });
+    panel.items.push(b);
+    prev = b;
+  }
+  return panel;
+}
+
+// 페이지에 놓이는 글 상자(표지 제목, 요약 등). 상자 안에 줄바꿈하고 넘치면 글자를 줄인다.
+export function layoutText(item, settings, measure) {
+  const font = settings.fonts[item.role] || settings.fonts.dialogue;
+  const base = font.size * (item.sizeScale || 1);
+  const padX = item.box ? base * 0.8 : 4, padY = item.box ? base * 0.7 : 2;
+  const paras = String(item.text || '').split('\n').map((t) => (item.slot === 'summary' && t.trim() ? `• ${t.replace(/^[-•]\s*/, '')}` : t));
+  let size = base, lines = [];
+  for (let tries = 0; tries < 30; tries++) {
+    lines = [];
+    for (const p of paras) lines.push(...wrapText(p, Math.max(size, item.w - padX * 2), font.family, size, measure));
+    const lh = size * (item.slot === 'summary' ? 1.6 : 1.3);
+    if (lines.length * lh <= item.h - padY * 2 || size <= 10) break;
+    size = Math.max(10, size * 0.93);
+  }
+  return { lines, fontSize: size };
+}
+
 export function generateProject(parsed, settings, existingChars, measure) {
   const characters = mergeCharacters(existingChars || [], parsed.characters);
   const n = Math.max(1, parsed.scenes.length);
@@ -290,35 +356,8 @@ export function generateProject(parsed, settings, existingChars, measure) {
     warnings.push(`장면이 ${parsed.scenes.length}개인데 컷은 ${rects.length}개입니다. 뒤의 ${parsed.scenes.length - rects.length}개 장면은 넣지 않았습니다. 레이아웃을 '장면 수에 맞춤'으로 바꾸면 모두 들어갑니다.`);
   }
   const panels = rects.map((r, i) => {
-    const scene = parsed.scenes[i];
-    const panel = { id: uid('p'), ...r, background: scene ? { ...scene.background } : { kind: 'none', night: false, label: '' }, note: scene ? [scene.desc, ...scene.notes].filter(Boolean).join(' / ') : '', items: [] };
-    if (!scene) return panel;
-    const cast = scene.cast;
-    const size = defaultCharSize(panel, cast.length);
-    // 말풍선이 차지할 넓이를 미리 재 보고, 많으면 인물을 내려서 위쪽 공간을 비운다
-    const bubbleArea = scene.lines.reduce((a, l) => {
-      const t = sizeBubble({ kind: l.kind, text: l.text }, panel, settings, measure);
-      return a + t.w * t.h;
-    }, 0);
-    const crowd = bubbleArea / (panel.w * panel.h);
-    if (cast.length && crowd > 0.18) panel.drop = Math.round(size * Math.min(0.42, (crowd - 0.1) * 1.2));
-    cast.forEach((m, k) => {
-      const ch = characters.find((c) => c.name === m.name);
-      const x = panel.x + (panel.w * (k + 1)) / (cast.length + 1);
-      const item = { id: uid('i'), type: 'character', charId: ch.id, emotion: m.emotion || 'neutral', action: m.action || 'stand', x, y: groundY(panel), size, flip: false };
-      item.flip = cast.length > 1 && x > panel.x + panel.w / 2;
-      panel.items.push(item);
-    });
-    let prev = null;
-    for (const line of scene.lines) {
-      const speakerChar = line.speaker && characters.find((c) => c.name === line.speaker);
-      const target = speakerChar && panel.items.find((o) => o.type === 'character' && o.charId === speakerChar.id);
-      const b = { id: uid('i'), type: 'bubble', kind: line.kind, text: line.text, tailTo: target ? target.id : null, x: panel.x, y: panel.y, w: 10, h: 10 };
-      Object.assign(b, sizeBubble(b, panel, settings, measure));
-      placeBubble(panel, b, panel.items, settings.style, { prev });
-      panel.items.push(b);
-      prev = b;
-    }
+    const panel = { id: uid('p'), ...r, background: { kind: 'none', night: false, label: '' }, note: '', items: [] };
+    if (parsed.scenes[i]) fillPanel(panel, parsed.scenes[i], characters, settings, measure);
     return panel;
   });
   return { title: parsed.title, characters, panels, layoutId, warnings };

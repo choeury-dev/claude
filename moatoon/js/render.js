@@ -1,6 +1,7 @@
 // 프로젝트를 SVG 문자열로 그린다. 편집 화면과 이미지 내보내기가 같은 함수를 쓴다.
 
 import { FIGURE, figureScale, headBox, characterBox, bubbleRole, titleHeight } from './layout.js';
+import { textureDefs, textureFilterAttr, hasPaper } from './texture.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f1 = (n) => Math.round(n * 10) / 10;
@@ -313,28 +314,154 @@ export function drawBackground(bg, r) {
   return out.join('');
 }
 
-// ── 전체 ──────────────────────────────────────────────────────────────
-export function renderProject(project, opts = {}) {
-  const { settings } = project;
+// ── 업로드 이미지 캐릭터 ─────────────────────────────────────────────
+// entry: { assetId, emotion, transform: { crop, flip, rotate, outline, shadow, plate, plateColor }, faceBox }
+// faceBox 는 원본 이미지에 대한 비율(0~1). crop 은 원본 이미지를 망가뜨리지 않고 보이는 영역만 고른다.
+export function entryCrop(entry, asset) {
+  const W = asset.w, H = asset.h, t = (entry && entry.transform) || {};
+  const fb = entry && entry.faceBox;
+  if (t.crop === 'bust') return { x: 0, y: 0, w: W, h: H * 0.62 };
+  if (t.crop === 'face') {
+    const f = fb || { x: 0.2, y: 0.02, w: 0.6, h: 0.42 };
+    const cx = (f.x + f.w / 2) * W, cy = (f.y + f.h / 2) * H;
+    const side = Math.min(Math.max(f.w * W, f.h * H) * 1.5, W, H);
+    const x = Math.max(0, Math.min(W - side, cx - side / 2)), y = Math.max(0, Math.min(H - side, cy - side / 2));
+    return { x, y, w: side, h: side };
+  }
+  return { x: 0, y: 0, w: W, h: H };
+}
+
+// 인물 상자 안에서 얼굴이 있는 자리(말풍선 꼬리와 겹침 계산용)
+export function entryHead(entry, asset) {
+  const c = entryCrop(entry, asset);
+  const fb = (entry && entry.faceBox) || { x: 0.2, y: 0.02, w: 0.6, h: 0.38 };
+  const x = (fb.x * asset.w - c.x) / c.w, y = (fb.y * asset.h - c.y) / c.h;
+  const w = (fb.w * asset.w) / c.w, h = (fb.h * asset.h) / c.h;
+  const cl = (v) => Math.max(0, Math.min(1, v));
+  return { x: cl(x), y: cl(y), w: Math.min(1, w), h: Math.min(1, h) };
+}
+
+function imageFilter(t) {
+  if (t.outline && t.shadow) return ' filter="url(#img-outline-shadow)"';
+  if (t.outline) return ' filter="url(#img-outline)"';
+  if (t.shadow) return ' filter="url(#img-shadow)"';
+  return '';
+}
+
+export function drawImageFigure(box, entry, asset, flipItem) {
+  const t = entry.transform || {};
+  const c = entryCrop(entry, asset);
+  const flip = !!flipItem !== !!t.flip;
+  const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+  let plate = '';
+  if (t.plate === 'circle') { const r = Math.min(box.w, box.h) / 2; plate = `<circle cx="${f1(cx)}" cy="${f1(cy)}" r="${f1(r)}" fill="${esc(t.plateColor || '#ffe066')}"/>`; }
+  if (t.plate === 'rounded') plate = `<rect x="${f1(box.x)}" y="${f1(box.y)}" width="${f1(box.w)}" height="${f1(box.h)}" rx="${f1(Math.min(box.w, box.h) * 0.18)}" fill="${esc(t.plateColor || '#ffe066')}"/>`;
+  const mirror = flip ? ` transform="translate(${f1(2 * c.x + c.w)} 0) scale(-1 1)"` : '';
+  const rot = t.rotate ? ` transform="rotate(${f1(t.rotate)} ${f1(cx)} ${f1(cy)})"` : '';
+  return `${plate}<g${rot}><g${imageFilter(t)}><svg x="${f1(box.x)}" y="${f1(box.y)}" width="${f1(box.w)}" height="${f1(box.h)}" viewBox="${f1(c.x)} ${f1(c.y)} ${f1(c.w)} ${f1(c.h)}" preserveAspectRatio="xMidYMid meet" overflow="hidden"><g${mirror}><image href="${asset.url}" width="${asset.w}" height="${asset.h}"/></g></svg></g></g>`;
+}
+
+export function pickEntry(item, character) {
+  if (!character || !character.images || !character.images.length) return null;
+  const list = character.images;
+  return list.find((e) => e.id === item.variantId) || list.find((e) => e.emotion === item.emotion) || list.find((e) => e.emotion === 'neutral') || list[0];
+}
+
+function drawCharacterAny(item, character, settings, assets, opts) {
+  const entry = pickEntry(item, character);
+  const asset = entry && assets[entry.assetId];
+  if (!asset || !item.aspect) return drawCharacter(item, character, settings.style, { labels: opts.guides });
+  const box = characterBox(item, settings.style);
+  let label = '';
+  if (opts.guides && character) label = `<text class="guide-label" x="${f1(item.x)}" y="${f1(box.y - 8)}" font-size="16" text-anchor="middle" fill="${character.color}" font-family="IBM Plex Sans KR, sans-serif" font-weight="700" paint-order="stroke" stroke="#fff" stroke-width="4">${esc(character.name)}</text>`;
+  return `<g class="item char" data-id="${item.id}">${drawImageFigure(box, entry, asset, item.flip)}${label}<rect class="hit" x="${f1(box.x)}" y="${f1(box.y)}" width="${f1(box.w)}" height="${f1(box.h)}" fill="transparent"/></g>`;
+}
+
+// ── 글 상자 (표지 제목, 요약 등) ─────────────────────────────────────
+export function drawText(item, settings) {
+  const font = settings.fonts[item.role] || settings.fonts.dialogue;
+  const size = item.fontSize || font.size;
+  const lines = item.lines || [item.text];
+  const lh = size * (item.slot === 'summary' ? 1.6 : 1.3);
+  const padX = item.box ? (font.size * (item.sizeScale || 1)) * 0.8 : 4;
+  const total = lines.length * lh;
+  const top = item.box ? item.y + (font.size * (item.sizeScale || 1)) * 0.7 : item.y + (item.h - total) / 2;
+  const anchor = item.align === 'left' ? 'start' : item.align === 'right' ? 'end' : 'middle';
+  const x = item.align === 'left' ? item.x + padX : item.align === 'right' ? item.x + item.w - padX : item.x + item.w / 2;
+  const box = item.box ? `<rect x="${f1(item.x)}" y="${f1(item.y)}" width="${f1(item.w)}" height="${f1(item.h)}" rx="18" fill="#f4f6f9" stroke="#1b1f2a" stroke-width="3"/>` : '';
+  const text = lines.map((l, i) => `<text x="${f1(x)}" y="${f1(top + i * lh + lh / 2)}" dominant-baseline="central" text-anchor="${anchor}" font-family="'${esc(font.family)}', sans-serif" font-size="${f1(size)}" fill="${esc(item.color || '#1b1f2a')}">${esc(l)}</text>`).join('');
+  return `<g class="item text" data-id="${item.id}">${box}${text}<rect class="hit" x="${f1(item.x)}" y="${f1(item.y)}" width="${f1(item.w)}" height="${f1(item.h)}" fill="transparent"/></g>`;
+}
+
+// ── 워터마크·페이지 번호: 모든 페이지 같은 자리에 고정 ─────────────────
+function anchorPos(anchor, W, H, dx, dy, w, h) {
+  const col = anchor[1], row = anchor[0];
+  const x = col === 'l' ? dx : col === 'r' ? W - dx - w : (W - w) / 2 + dx;
+  const y = row === 't' ? dy : row === 'b' ? H - dy - h : (H - h) / 2 + dy;
+  return { x, y };
+}
+
+export function pageNumberText(fmt, n, total) {
+  if (fmt === 'n') return String(n);
+  if (fmt === '0n') return String(n).padStart(2, '0');
+  if (fmt === 'dash') return `- ${n} -`;
+  return `${n} / ${total}`;
+}
+
+export function drawMarks(settings, assets, index, total, kind) {
+  const W = settings.width, H = settings.height, out = [];
+  const pn = settings.pageNumber, wm = settings.watermark;
+  const font = "'IBM Plex Sans KR', sans-serif";
+  if (pn && pn.enabled && !(pn.skipCover && kind === 'cover')) {
+    const txt = pageNumberText(pn.format, index + 1, total);
+    const w = txt.length * pn.size * 0.62, h = pn.size;
+    const p = anchorPos(pn.anchor, W, H, pn.dx, pn.dy, w, h);
+    out.push(`<text class="mark" x="${f1(p.x + w / 2)}" y="${f1(p.y + h / 2)}" dominant-baseline="central" text-anchor="middle" font-family="${font}" font-weight="500" font-size="${pn.size}" fill="${esc(pn.color)}" opacity="${pn.opacity}">${esc(txt)}</text>`);
+  }
+  if (wm && wm.enabled && !(wm.skipCover && kind === 'cover')) {
+    const a = wm.type === 'image' && wm.assetId && assets[wm.assetId];
+    if (a) {
+      const h = wm.size * 2.2, w = (h * a.w) / a.h;
+      const p = anchorPos(wm.anchor, W, H, wm.dx, wm.dy, w, h);
+      out.push(`<image class="mark" href="${a.url}" x="${f1(p.x)}" y="${f1(p.y)}" width="${f1(w)}" height="${f1(h)}" opacity="${wm.opacity}"/>`);
+    } else if (wm.text) {
+      const w = [...wm.text].reduce((acc, ch) => acc + (/[가-힣]/.test(ch) ? 1 : 0.6), 0) * wm.size, h = wm.size;
+      const p = anchorPos(wm.anchor, W, H, wm.dx, wm.dy, w, h);
+      out.push(`<text class="mark" x="${f1(p.x + w / 2)}" y="${f1(p.y + h / 2)}" dominant-baseline="central" text-anchor="middle" font-family="${font}" font-weight="700" font-size="${wm.size}" fill="${esc(wm.color)}" opacity="${wm.opacity}">${esc(wm.text)}</text>`);
+    }
+  }
+  return out.join('');
+}
+
+// ── 페이지 하나 ──────────────────────────────────────────────────────
+// ctx: { project, settings, assets, index, total, opts: { guides, background, fast } }
+export function renderPage(page, ctx) {
+  const { project, settings } = ctx;
+  const assets = ctx.assets || {};
+  const opts = ctx.opts || {};
   const W = settings.width, H = settings.height;
-  const parts = [];
-  parts.push(`<rect x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`);
-  const tH = titleHeight(settings, !!project.title);
+  const tex = opts.fast ? '' : textureFilterAttr(settings.texture);
+  const parts = [`<defs>${textureDefs(opts.fast ? 'clean' : settings.texture)}</defs>`];
+  parts.push(`<rect class="page-bg" x="0" y="0" width="${W}" height="${H}" fill="#ffffff"/>`);
+  const tH = page.showTitle ? titleHeight(settings, !!project.title) : 0;
   if (tH) {
     const tf = settings.fonts.title;
     parts.push(`<g class="item title" data-id="title"><text x="${W / 2}" y="${f1(settings.margin + tH / 2)}" dominant-baseline="central" text-anchor="middle" font-family="'${esc(tf.family)}', sans-serif" font-size="${tf.size}" fill="#1b1f2a">${esc(project.title)}</text></g>`);
   }
-  project.panels.forEach((p, i) => {
+  page.panels.forEach((p, i) => {
     const clip = `clip_${p.id}`;
     parts.push(`<clipPath id="${clip}"><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"/></clipPath>`);
     parts.push(`<g class="panel" data-panel="${p.id}"><rect class="panel-bg" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" fill="#fff"/>`);
-    parts.push(`<g clip-path="url(#${clip})">`);
-    if (opts.background !== false) parts.push(drawBackground(p.background || { kind: 'none' }, p));
-    if (opts.guides && p.background && p.background.kind !== 'none') {
-      parts.push(`<text class="guide-label" x="${p.x + p.w - 10}" y="${p.y + p.h - 10}" text-anchor="end" font-size="16" fill="#98a2b3" font-family="IBM Plex Sans KR, sans-serif">배경 · ${esc(p.background.label || p.background.kind)}</text>`);
-    }
+    parts.push(`<g clip-path="url(#${clip})"><g${tex}>`);
+    const bgA = p.bgImage && assets[p.bgImage];
+    if (bgA) parts.push(`<image href="${bgA.url}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" preserveAspectRatio="xMidYMid slice"/>`);
+    else if (opts.background !== false) parts.push(drawBackground(p.background || { kind: 'none' }, p));
     for (const it of p.items) {
-      if (it.type === 'character') parts.push(drawCharacter(it, project.characters.find((c) => c.id === it.charId), settings.style, { labels: opts.guides }));
+      if (it.type === 'character') parts.push(drawCharacterAny(it, project.characters.find((c) => c.id === it.charId), settings, assets, opts));
+    }
+    parts.push('</g>');
+    if (opts.guides && !bgA && p.background && p.background.kind !== 'none') {
+      parts.push(`<text class="guide-label" x="${p.x + p.w - 10}" y="${p.y + p.h - 10}" text-anchor="end" font-size="16" fill="#98a2b3" font-family="IBM Plex Sans KR, sans-serif">배경 · ${esc(p.background.label || p.background.kind)}</text>`);
     }
     parts.push('</g>');
     for (const it of p.items) if (it.type === 'bubble') parts.push(drawBubble(it, p, settings, opts));
@@ -342,5 +469,14 @@ export function renderProject(project, opts = {}) {
     if (opts.guides) parts.push(`<text class="guide-label" x="${p.x + 10}" y="${p.y + p.h - 10}" font-size="16" fill="#98a2b3" font-family="IBM Plex Sans KR, sans-serif" pointer-events="none">${i + 1}컷</text>`);
     parts.push('</g>');
   });
+  for (const t of page.texts || []) parts.push(drawText(t, settings));
+  if (!opts.fast && hasPaper(settings.texture)) parts.push(`<rect x="0" y="0" width="${W}" height="${H}" filter="url(#tex-paper)" pointer-events="none"/>`);
+  parts.push(`<g pointer-events="none">${drawMarks(settings, assets, ctx.index || 0, ctx.total || 1, page.kind)}</g>`);
   return { width: W, height: H, inner: parts.join('') };
+}
+
+// 예전 한 페이지 형식(테스트용)
+export function renderProject(project, opts = {}) {
+  const page = { kind: 'content', panels: project.panels, texts: [], showTitle: !!project.title };
+  return renderPage(page, { project, settings: project.settings, assets: {}, index: 0, total: 1, opts });
 }

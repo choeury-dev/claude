@@ -11,172 +11,103 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>모아툰 작업실</div>
-  <nav class="steps" role="tablist" aria-label="작업 단계">
-    <button role="tab" data-view="setup" id="tab-setup"><b>1</b> 기본 설정</button>
-    <button role="tab" data-view="script" id="tab-script"><b>2</b> 장면 스크립트</button>
-    <button role="tab" data-view="edit" id="tab-edit"><b>3</b> 배치·편집</button>
-  </nav>
-  <div class="top-actions">
-    <button id="btn-undo" class="ghost" title="실행 취소 (Ctrl+Z)">되돌리기</button>
-    <button id="btn-export" class="primary">이미지로 내보내기</button>
-  </div>
-</header>
 
-<main>
-  <!-- 1. 기본 설정 -->
-  <section id="view-setup" class="view setup" hidden>
-    <div class="setup-grid">
-      <div class="card">
-        <h2>캔버스 크기</h2>
-        <div id="size-options" class="choice-row"></div>
-        <div class="field-row">
-          <label for="set-w">가로(px)</label><input id="set-w" type="number" min="400" max="4000" step="10">
-          <label for="set-h">세로(px)</label><input id="set-h" type="number" min="400" max="6000" step="10">
-        </div>
-        <div class="field-row">
-          <label for="set-margin">바깥 여백</label><input id="set-margin" type="range" min="0" max="120" step="2"><output id="out-margin"></output>
-        </div>
-        <div class="field-row">
-          <label for="set-gutter">컷 사이 간격</label><input id="set-gutter" type="range" min="0" max="80" step="2"><output id="out-gutter"></output>
-        </div>
-        <label class="check"><input id="set-showtitle" type="checkbox"> 맨 위에 제목 칸 두기</label>
-      </div>
-      <div class="card">
-        <h2>레이아웃</h2>
-        <div id="layout-options" class="choice-grid"></div>
-      </div>
-      <div class="card">
-        <h2>그림체</h2>
-        <p class="hint">인물은 배치를 잡기 위한 가이드 그림입니다. 완성 그림은 이 위에 직접 그리거나 다른 도구에서 덧그리세요.</p>
-        <div id="style-options" class="choice-row"></div>
-      </div>
-      <div class="card">
-        <h2>폰트 기본값</h2>
-        <div id="font-settings-setup" class="font-settings"></div>
-      </div>
+<!-- ───────── 첫 화면: 드라이브 ───────── -->
+<div id="home" class="home" hidden>
+  <header class="home-top">
+    <div class="brand"><span class="logo" aria-hidden="true">모아</span><div><b>모아툰 작업실</b><small>회차 드라이브</small></div></div>
+    <label class="search"><span class="sr-only">회차 검색</span><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M13.5 13.5 18 18"/></svg><input id="home-search" placeholder="회차 이름 검색"></label>
+    <div class="home-top-actions">
+      <button id="btn-home-import" class="btn dark">스크립트 파일 열기</button>
+      <button id="btn-home-new" class="btn accent">새 회차 만들기</button>
     </div>
-    <div class="setup-foot">
-      <span class="hint" id="setup-note">크기·레이아웃·여백을 바꾸면 스크립트로 가이드를 다시 만들어야 컷에 반영됩니다.</span>
-      <button class="primary" data-goto="script">다음: 장면 스크립트</button>
-    </div>
-  </section>
-
-  <!-- 2. 스크립트 -->
-  <section id="view-script" class="view script" hidden>
-    <div class="script-grid">
-      <div class="card script-editor">
-        <div class="card-head">
-          <h2>장면별 스크립트</h2>
-          <button id="btn-sample" class="ghost small">예시 불러오기</button>
-        </div>
-        <label for="script-text" class="sr-only">장면 스크립트</label>
-        <textarea id="script-text" spellcheck="false"></textarea>
-      </div>
-      <aside class="card script-help">
-        <h2>쓰는 법</h2>
-        <dl class="syntax">
-          <dt><code>제목: 월요일 아침</code></dt><dd>맨 위 제목 칸에 들어갑니다.</dd>
-          <dt><code>#1 카페, 아침</code></dt><dd>새 장면(컷)을 시작합니다. 카페·교실·사무실·거리·공원·바다·방·지하철·편의점을 알아보고 배경 가이드를 그립니다. '밤'이 있으면 어둡게 칠합니다.</dd>
-          <dt><code>민지(기쁨): 대사</code></dt><dd>인물 이름, 괄호 안 감정, 대사. 처음 나온 이름은 캐릭터 목록에 자동으로 추가됩니다.</dd>
-          <dt><code>준호(속마음): …</code></dt><dd>속마음·독백·생각은 생각 풍선과 독백 폰트로, 외침·버럭이나 '!!'로 끝나면 외침 풍선, 속삭임·작게는 점선 풍선이 됩니다.</dd>
-          <dt><code>(민지가 손을 흔든다)</code></dt><dd>괄호 지문에서 동작(손 흔들기, 달리기, 앉기, 점프, 팔짱, 만세, 가리키기, 머리 긁기, 전화)과 감정을 찾아 그 인물에게 줍니다.</dd>
-          <dt><code>내레이션: 그날 오후…</code></dt><dd>컷 왼쪽 위 네모 상자로 들어갑니다.</dd>
-        </dl>
-        <div id="script-preview" class="preview-box"></div>
-        <button id="btn-generate" class="primary wide">배치 가이드 만들기</button>
-        <p class="hint" id="generate-note">지금 편집 중인 배치는 새 가이드로 바뀝니다. 되돌리기로 되살릴 수 있습니다.</p>
-      </aside>
-    </div>
-  </section>
-
-  <!-- 3. 편집 -->
-  <section id="view-edit" class="view edit" hidden>
-    <aside class="palette" aria-label="재료">
-      <details open>
-        <summary>캐릭터</summary>
-        <div id="pal-characters" class="chips"></div>
-        <form id="form-add-char" class="add-char">
-          <label for="new-char-name" class="sr-only">새 캐릭터 이름</label>
-          <input id="new-char-name" placeholder="새 캐릭터 이름" maxlength="12" required>
-          <label for="new-char-color" class="sr-only">색</label>
-          <input id="new-char-color" type="color" value="#0c8599">
-          <button type="submit" class="small">추가</button>
-        </form>
-      </details>
-      <details open>
-        <summary>감정</summary>
-        <div id="pal-emotions" class="chips icons"></div>
-      </details>
-      <details open>
-        <summary>동작</summary>
-        <div id="pal-actions" class="chips icons"></div>
-      </details>
-      <details open>
-        <summary>말풍선</summary>
-        <div id="pal-bubbles" class="chips icons"></div>
-      </details>
-      <details>
-        <summary>폰트 (제목·대화·독백)</summary>
-        <div id="font-settings-edit" class="font-settings compact"></div>
-        <div id="pal-fonts" class="chips"></div>
-      </details>
-      <details>
-        <summary>배경</summary>
-        <div id="pal-backgrounds" class="chips"></div>
-      </details>
-      <p class="hint pal-hint">끌어서 컷에 놓으면 바닥선·빈자리에 맞춰 놓입니다. 감정·동작은 인물 위에, 폰트는 말풍선 위에 놓으세요. 클릭하면 선택한 컷이나 인물에 바로 적용됩니다.</p>
+  </header>
+  <div class="home-body">
+    <nav class="home-rail" aria-label="메뉴">
+      <button class="rail-btn on" data-home="drive"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>프로젝트</button>
+      <button class="rail-btn" data-home="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>연결 설정</button>
+    </nav>
+    <aside class="home-side">
+      <button class="side-link on" data-src="local"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 15h18"/></svg>내 드라이브 <small>이 브라우저</small></button>
+      <button class="side-link" data-src="google"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l6 10-4 7H6l-4-7z"/></svg>Google 드라이브</button>
+      <button class="side-link" data-src="layouts"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="8" height="8"/><rect x="13" y="3" width="8" height="8"/><rect x="3" y="13" width="18" height="8"/></svg>레이아웃 보관함</button>
     </aside>
-
-    <aside class="guide" aria-label="대사 가이드">
-      <div class="guide-head">
-        <h2>대사 가이드</h2>
-        <div class="guide-actions">
-          <button id="btn-check" class="small">맞춤법·사실 검사</button>
-          <button id="btn-ai" class="small ghost">Claude로 검사</button>
+    <main class="home-main" id="home-main">
+      <section class="banner">
+        <div>
+          <h1>오늘은 어떤 회차를 만들어볼까요?</h1>
+          <div class="banner-actions">
+            <button class="pill" data-act="new">새 회차 만들기</button>
+            <button class="pill" data-act="google">Google 드라이브에서 회차 고르기</button>
+          </div>
         </div>
-        <div id="guide-summary" class="guide-summary"></div>
-        <details id="ai-settings" class="ai-settings">
-          <summary>Claude 검사 설정</summary>
-          <label for="api-key">Anthropic API 키</label>
-          <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-…">
-          <p class="hint">키는 이 브라우저에만 저장되고, 검사할 때 대사와 함께 Anthropic API로 바로 보내집니다. 공용 컴퓨터에서는 쓰지 마세요. Claude는 검색 없이 알고 있는 지식으로만 사실을 판단합니다.</p>
-        </details>
-      </div>
-      <div id="guide-list" class="guide-list"></div>
-    </aside>
-
-    <section class="stage-area" aria-label="모아툰 캔버스">
-      <div class="stage-bar">
-        <span id="stage-info" class="hint"></span>
-        <label class="check"><input id="toggle-guides" type="checkbox" checked> 가이드 표시</label>
-      </div>
-      <div id="stage-wrap" class="stage-wrap">
-        <svg id="stage" xmlns="http://www.w3.org/2000/svg"></svg>
-        <div id="toolbar" class="toolbar" hidden></div>
-        <textarea id="inline-edit" class="inline-edit" hidden aria-label="대사 바로 고치기"></textarea>
-      </div>
-    </section>
-  </section>
-</main>
-
-<div id="export-modal" class="modal" hidden>
-  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="export-title">
-    <div class="card-head">
-      <h2 id="export-title">이미지 내보내기</h2>
-      <button id="btn-close-export" class="ghost small">닫기</button>
-    </div>
-    <label class="check"><input id="export-guides" type="checkbox"> 배경 가이드 선도 넣기</label>
-    <p id="export-status" class="hint"></p>
-    <div class="export-img"><img id="export-img" alt="내보낸 모아툰 미리보기"></div>
-    <div class="export-foot">
-      <a id="export-download" class="button primary" download="moatoon.png">PNG 저장</a>
-      <span class="hint">저장 버튼이 안 되면 이미지를 오른쪽 클릭(휴대폰은 길게 눌러) 저장하세요.</span>
-    </div>
+        <svg class="banner-art" viewBox="0 0 220 130" aria-hidden="true"><rect x="10" y="10" width="95" height="52" rx="4"/><rect x="115" y="10" width="95" height="52" rx="4"/><rect x="10" y="70" width="95" height="52" rx="4"/><rect x="115" y="70" width="95" height="52" rx="4"/><ellipse cx="60" cy="32" rx="30" ry="12"/><path d="M52 43 46 52 62 44"/></svg>
+      </section>
+      <div id="home-content"></div>
+    </main>
   </div>
 </div>
 
+<!-- ───────── 편집 화면 ───────── -->
+<div id="editor" class="editor" hidden>
+  <header class="ed-top">
+    <button id="btn-home" class="icon-btn" title="드라이브로" aria-label="드라이브로 돌아가기"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <span class="ed-brand"><span class="logo sm" aria-hidden="true">모아</span>모아툰 작업실</span>
+    <span class="sep"></span>
+    <button id="btn-undo" class="icon-btn" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소"><svg viewBox="0 0 24 24"><path d="M9 7 4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 12h-2"/></svg></button>
+    <button id="btn-redo" class="icon-btn" title="다시 실행 (Ctrl+Shift+Z)" aria-label="다시 실행"><svg viewBox="0 0 24 24"><path d="m15 7 5 5-5 5"/><path d="M20 12H10a6 6 0 0 0 0 12h2"/></svg></button>
+    <span id="save-state" class="save-state" title="저장 상태"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/></svg><span>저장됨</span></span>
+    <div class="ed-title">
+      <label class="sr-only" for="ep-name">회차 이름</label>
+      <input id="ep-name" maxlength="60">
+      <button id="btn-size" class="chip-btn" title="캔버스 크기 설정"></button>
+    </div>
+    <div class="ed-actions">
+      <button id="btn-drive-save" class="btn dark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l6 10-4 7H6l-4-7z"/></svg>드라이브에 저장</button>
+      <button id="btn-export" class="btn accent"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>다운로드</button>
+    </div>
+  </header>
+  <div class="ed-body">
+    <nav class="rail" aria-label="도구">
+      <button class="rail-btn" data-tab="script"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6z"/><path d="M9 11h7M9 15h7M9 7h4"/></svg>스크립트</button>
+      <button class="rail-btn" data-tab="layout"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 10h18M12 10v11"/></svg>레이아웃</button>
+      <button class="rail-btn" data-tab="elements"><svg viewBox="0 0 24 24"><circle cx="7" cy="7" r="3.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><path d="M7 13.5 3.5 20.5h7z"/><circle cx="17" cy="17" r="3.5"/></svg>요소</button>
+      <button class="rail-btn" data-tab="text"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8M12 8v9"/></svg>텍스트</button>
+      <button class="rail-btn" data-tab="upload"><svg viewBox="0 0 24 24"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8"/><path d="M12 12v8M9 15l3-3 3 3"/></svg>업로드</button>
+      <button class="rail-btn" data-tab="background"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 15 5-5 4 4 3-3 6 6"/></svg>배경</button>
+      <button class="rail-btn" data-tab="guide"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="m9 10 2 2 4-4"/></svg>대사 가이드</button>
+      <button class="rail-btn" data-tab="ai"><svg viewBox="0 0 24 24"><path d="m12 3 1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>AI 활용</button>
+      <button class="rail-btn" data-tab="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>설정</button>
+      <button id="btn-side-toggle" class="rail-btn rail-bottom" title="패널 접기" aria-label="패널 접기"><svg viewBox="0 0 24 24"><path d="m14 6-6 6 6 6M20 6l-6 6 6 6"/></svg></button>
+    </nav>
+    <aside id="side" class="side" aria-live="polite"></aside>
+    <main id="canvas-area" class="canvas-area">
+      <div id="pages" class="pages"></div>
+      <div id="toolbar" class="toolbar" hidden></div>
+      <textarea id="inline-edit" class="inline-edit" hidden aria-label="글 바로 고치기"></textarea>
+    </main>
+    <aside id="layers" class="layers" aria-label="레이어"></aside>
+  </div>
+  <footer class="ed-bottom">
+    <label class="toggle"><input id="toggle-guides" type="checkbox" checked><span>가이드 표시</span></label>
+    <span id="page-indicator" class="muted"></span>
+    <span class="grow"></span>
+    <button id="btn-layers" class="icon-btn" title="레이어 패널" aria-label="레이어 패널 열고 닫기"><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
+    <button id="zoom-out" class="icon-btn" aria-label="축소"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>
+    <button id="zoom-fit" class="zoom-val" title="화면에 맞추기"></button>
+    <button id="zoom-in" class="icon-btn" aria-label="확대"><svg viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+  </footer>
+</div>
+
+<!-- 공용 창 -->
+<div id="modal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-head"><h2 id="modal-title"></h2><button class="icon-btn" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+<input id="file-script" type="file" accept=".txt,.md,.json,text/plain,application/json" hidden>
+<input id="file-image" type="file" accept="image/*" multiple hidden>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 <script type="module" src="js/main.js"></script>
 </body>

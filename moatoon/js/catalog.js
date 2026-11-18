@@ -92,15 +92,81 @@ export const MONOLOGUE_WORDS = ['속마음', '독백', '생각', '속으로', '�
 export const SHOUT_WORDS = ['외침', '소리', '고함', '버럭', '크게'];
 export const WHISPER_WORDS = ['속삭', '작게', '소곤'];
 
+// 질감 표현: 그림(배경·인물·업로드 이미지)에 SVG 필터로 입힌다. 글자에는 입히지 않는다.
+export const TEXTURES = [
+  { id: 'clean', label: '깔끔', note: '질감 없이 매끈하게' },
+  { id: 'pen', label: '펜', note: '살짝 떨리는 잉크 선' },
+  { id: 'pencil', label: '연필', note: '흑연 결이 보이는 선과 면' },
+  { id: 'crayon', label: '크레용', note: '거칠고 빈틈 있는 왁스 질감' },
+  { id: 'watercolor', label: '수채화', note: '번지는 가장자리와 종이 결' },
+  { id: 'marker', label: '마커', note: '진하고 살짝 번진 색' },
+];
+
+export const PAGE_KINDS = [
+  { id: 'cover', label: '표지' },
+  { id: 'content', label: '내용' },
+  { id: 'ending', label: '마지막(요약)' },
+];
+
+// 3×3 위치. 워터마크와 페이지 번호를 모든 페이지 같은 자리에 고정한다.
+export const ANCHORS = ['tl', 'tc', 'tr', 'ml', 'mc', 'mr', 'bl', 'bc', 'br'];
+export const ANCHOR_LABEL = { tl: '왼쪽 위', tc: '가운데 위', tr: '오른쪽 위', ml: '왼쪽 가운데', mc: '가운데', mr: '오른쪽 가운데', bl: '왼쪽 아래', bc: '가운데 아래', br: '오른쪽 아래' };
+
+export const PAGE_NUMBER_FORMATS = [
+  { id: 'n/total', label: '1 / 5' },
+  { id: 'n', label: '1' },
+  { id: '0n', label: '01' },
+  { id: 'dash', label: '- 1 -' },
+];
+
+// 기본 레이아웃(지울 수 없음). 좌표는 페이지 크기에 대한 비율(0~1).
+export const BUILTIN_TEMPLATES = [
+  {
+    id: 'builtin-cover', name: '기본 표지', kind: 'cover', builtin: true,
+    panels: [{ x: 0.07, y: 0.07, w: 0.86, h: 0.55 }],
+    texts: [
+      { slot: 'episode', role: 'dialogue', align: 'center', x: 0.3, y: 0.655, w: 0.4, h: 0.05, sizeScale: 0.9 },
+      { slot: 'title', role: 'title', align: 'center', x: 0.07, y: 0.71, w: 0.86, h: 0.13, sizeScale: 1.3 },
+      { slot: 'subtitle', role: 'monologue', align: 'center', x: 0.07, y: 0.85, w: 0.86, h: 0.08, sizeScale: 1.1 },
+    ],
+  },
+  { id: 'auto', name: '설정한 컷 레이아웃 따르기', kind: 'content', builtin: true, panels: null, texts: [] },
+  {
+    id: 'builtin-ending', name: '기본 마지막(요약)', kind: 'ending', builtin: true,
+    panels: [{ x: 0.07, y: 0.68, w: 0.86, h: 0.25 }],
+    texts: [
+      { slot: 'heading', role: 'title', align: 'center', x: 0.07, y: 0.06, w: 0.86, h: 0.09, sizeScale: 0.85 },
+      { slot: 'summary', role: 'dialogue', align: 'left', box: true, x: 0.07, y: 0.17, w: 0.86, h: 0.47, sizeScale: 1 },
+    ],
+  },
+];
+
 export function defaultSettings() {
   return {
     sizeId: 'insta45', width: 1080, height: 1350,
-    layout: 'auto', style: 'sd',
-    margin: 40, gutter: 24, showTitle: true,
+    layout: 'auto', style: 'sd', texture: 'clean',
+    margin: 40, gutter: 24, showTitle: false,
+    panelsPerPage: 4,
     fonts: {
       title: { family: 'Black Han Sans', size: 56 },
       dialogue: { family: 'Jua', size: 30 },
       monologue: { family: 'Gaegu', size: 30 },
     },
+    watermark: { enabled: true, type: 'text', text: '@my_moatoon', assetId: null, anchor: 'br', dx: 24, dy: 14, size: 20, opacity: 0.55, color: '#1b1f2a', skipCover: false },
+    pageNumber: { enabled: true, format: 'n/total', anchor: 'bc', dx: 0, dy: 14, size: 20, opacity: 0.8, color: '#1b1f2a', skipCover: true },
+    pageTemplates: { cover: 'builtin-cover', content: 'auto', ending: 'builtin-ending' },
+  };
+}
+
+// 저장해 둔 설정에 새로 생긴 항목이 없으면 기본값으로 채운다.
+export function withDefaults(saved) {
+  const d = defaultSettings();
+  if (!saved) return d;
+  return {
+    ...d, ...saved,
+    fonts: { ...d.fonts, ...(saved.fonts || {}) },
+    watermark: { ...d.watermark, ...(saved.watermark || {}) },
+    pageNumber: { ...d.pageNumber, ...(saved.pageNumber || {}) },
+    pageTemplates: { ...d.pageTemplates, ...(saved.pageTemplates || {}) },
   };
 }

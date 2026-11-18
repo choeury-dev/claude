@@ -14,6 +14,11 @@ import {
 
 const SCENE_RE = /^(?:#|장면|씬|S#)\s*\d*\s*[.:：)\]-]?\s*(.*)$/;
 const TITLE_RE = /^제목\s*[:：]\s*(.+)$/;
+const EPISODE_RE = /^회차\s*[:：]\s*(.+)$/;
+const SUBTITLE_RE = /^부제\s*[:：]\s*(.+)$/;
+const SUMMARY_RE = /^요약\s*[:：]\s*(.+)$/;
+const CLOSING_RE = /^마무리\s*[:：]\s*(.+)$/;
+const MARK_RE = /^\[\s*(표지|마지막|요약|마지막 ?페이지)\s*\]$/;
 const BG_RE = /^배경\s*[:：]\s*(.+)$/;
 const NARR_RE = /^(?:내레이션|나레이션|해설|N)\s*[:：]\s*(.+)$/;
 const ACTION_RE = /^(?:\((.+)\)|\*\s*(.+)|지문\s*[:：]\s*(.+))$/;
@@ -60,7 +65,8 @@ function newScene(desc) {
 }
 
 export function parseScript(text, knownNames = []) {
-  const out = { title: '', scenes: [], characters: [], warnings: [] };
+  const out = { title: '', episode: '', subtitle: '', summary: [], closing: '', scenes: [], characters: [], warnings: [] };
+  let section = 'content'; // [마지막] 다음 줄은 요약으로 본다
   const names = new Set(knownNames);
   let scene = null;
   let pending = null; // 이름 없는 지문: 다음에 나오는 인물에게 준다
@@ -86,7 +92,14 @@ export function parseScript(text, knownNames = []) {
     if (!line || line.startsWith('//')) return;
     let m;
     if ((m = line.match(TITLE_RE))) { out.title = m[1].trim(); return; }
+    if ((m = line.match(EPISODE_RE))) { out.episode = m[1].trim(); return; }
+    if ((m = line.match(SUBTITLE_RE))) { out.subtitle = m[1].trim(); return; }
+    if ((m = line.match(SUMMARY_RE))) { out.summary.push(m[1].trim()); return; }
+    if ((m = line.match(CLOSING_RE))) { out.closing = m[1].trim(); return; }
+    if ((m = line.match(MARK_RE))) { section = m[1] === '표지' ? 'cover' : 'ending'; return; }
+    if (section === 'ending') { out.summary.push(line.replace(/^[-•*·]\s*/, '')); return; }
     if ((m = line.match(SCENE_RE))) {
+      section = 'content';
       scene = newScene(m[1].trim());
       out.scenes.push(scene);
       pending = null;
