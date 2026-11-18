@@ -82,11 +82,12 @@ export function readImage(file, maxSide = 2000) {
         let { naturalWidth: w, naturalHeight: h } = img;
         let url = fr.result;
         const k = Math.min(1, maxSide / Math.max(w, h));
-        if (k < 1) {
+        const allowed = /^data:image\/(png|jpeg|gif|webp);base64,/.test(String(fr.result));
+        if (k < 1 || !allowed) {
           const c = document.createElement('canvas');
           c.width = Math.round(w * k); c.height = Math.round(h * k);
           c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-          url = c.toDataURL(/png|gif|webp/.test(file.type) ? 'image/png' : 'image/jpeg', 0.92);
+          url = c.toDataURL(file.type === 'image/jpeg' ? 'image/jpeg' : 'image/png', 0.92);
           w = c.width; h = c.height;
         }
         resolve({ id: `a_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, url, w, h, name: file.name });

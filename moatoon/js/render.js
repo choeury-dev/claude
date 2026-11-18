@@ -2,6 +2,7 @@
 
 import { FIGURE, figureScale, headBox, characterBox, bubbleRole, titleHeight } from './layout.js';
 import { textureDefs, textureFilterAttr, hasPaper, filterDef } from './texture.js';
+import { safeImageUrl } from './sanitize.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const f1 = (n) => Math.round(n * 10) / 10;
@@ -358,7 +359,7 @@ export function drawImageFigure(box, entry, asset, flipItem) {
   if (t.plate === 'rounded') plate = `<rect x="${f1(box.x)}" y="${f1(box.y)}" width="${f1(box.w)}" height="${f1(box.h)}" rx="${f1(Math.min(box.w, box.h) * 0.18)}" fill="${esc(t.plateColor || '#ffe066')}"/>`;
   const mirror = flip ? ` transform="translate(${f1(2 * c.x + c.w)} 0) scale(-1 1)"` : '';
   const rot = t.rotate ? ` transform="rotate(${f1(t.rotate)} ${f1(cx)} ${f1(cy)})"` : '';
-  return `${plate}<g${rot}><g${imageFilter(t)}><svg x="${f1(box.x)}" y="${f1(box.y)}" width="${f1(box.w)}" height="${f1(box.h)}" viewBox="${f1(c.x)} ${f1(c.y)} ${f1(c.w)} ${f1(c.h)}" preserveAspectRatio="xMidYMid meet" overflow="hidden"><g${mirror}><image href="${asset.url}" width="${asset.w}" height="${asset.h}"/></g></svg></g></g>`;
+  return `${plate}<g${rot}><g${imageFilter(t)}><svg x="${f1(box.x)}" y="${f1(box.y)}" width="${f1(box.w)}" height="${f1(box.h)}" viewBox="${f1(c.x)} ${f1(c.y)} ${f1(c.w)} ${f1(c.h)}" preserveAspectRatio="xMidYMid meet" overflow="hidden"><g${mirror}><image href="${safeImageUrl(asset.url)}" width="${f1(asset.w)}" height="${f1(asset.h)}"/></g></svg></g></g>`;
 }
 
 export function pickEntry(item, character) {
@@ -423,7 +424,7 @@ export function drawMarks(settings, assets, index, total, kind) {
     if (a) {
       const h = wm.size * 2.2, w = (h * a.w) / a.h;
       const p = anchorPos(wm.anchor, W, H, wm.dx, wm.dy, w, h);
-      out.push(`<image class="mark" href="${a.url}" x="${f1(p.x)}" y="${f1(p.y)}" width="${f1(w)}" height="${f1(h)}" opacity="${wm.opacity}"/>`);
+      out.push(`<image class="mark" href="${safeImageUrl(a.url)}" x="${f1(p.x)}" y="${f1(p.y)}" width="${f1(w)}" height="${f1(h)}" opacity="${wm.opacity}"/>`);
     } else if (wm.text) {
       const w = [...wm.text].reduce((acc, ch) => acc + (/[가-힣]/.test(ch) ? 1 : 0.6), 0) * wm.size, h = wm.size;
       const p = anchorPos(wm.anchor, W, H, wm.dx, wm.dy, w, h);
@@ -458,7 +459,7 @@ export function renderPage(page, ctx) {
     const bgA = p.bgImage && assets[p.bgImage];
     const zf = p.zoom > 1 && p.focus;
     if (zf) parts.push(`<g transform="translate(${f1(p.focus.x)} ${f1(p.focus.y)}) scale(${p.zoom}) translate(${f1(-p.focus.x)} ${f1(-p.focus.y)})">`);
-    if (bgA) parts.push(`<image href="${bgA.url}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" preserveAspectRatio="xMidYMid slice"/>`);
+    if (bgA) parts.push(`<image href="${safeImageUrl(bgA.url)}" x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" preserveAspectRatio="xMidYMid slice"/>`);
     else if (opts.background !== false) parts.push(drawBackground(p.background || { kind: 'none' }, p));
     if (zf) parts.push('</g>');
     for (const it of p.items) {

@@ -247,3 +247,35 @@ test('컷 테두리 선 질감·굵기·색이 그림 질감과 따로 들어간
   assert.match(inner, /stroke="#334455" stroke-width="7" filter="url\(#tex-pen\)"/);
   assert.equal(withDefaults({}).border.texture, 'clean', '예전 설정에도 기본값이 채워짐');
 });
+
+test('조작한 회차 파일의 값이 화면(SVG)에 스크립트로 들어가지 못한다', async () => {
+  const { sanitizeEpisode, sanitizeAsset } = await import('../js/sanitize.js');
+  const { renderPage } = await import('../js/render.js');
+  const evil = '" onload="alert(1)" x="';
+  const ep = sanitizeEpisode({
+    id: 'ep1', name: '<img src=x onerror=alert(1)>',
+    settings: { width: '1080"><script>', texture: 'evil', fonts: { title: { family: "x'); alert(1); ('", size: 50 } }, watermark: { color: 'red;"><script>', anchor: 'zz' }, border: { color: evil } },
+    project: {
+      title: 'T', characters: [{ id: 'c1', name: 'A', color: evil, images: [{ id: 'v1', assetId: 'a1', emotion: 'happy', transform: { plateColor: evil, plate: 'circle' } }] }],
+      pages: [{ id: 'p1', kind: 'content', panels: [{ id: 'pn1', x: '0" onclick="x', y: 0, w: 500, h: 500, bgImage: 'a1', background: { kind: 'cafe' }, items: [
+        { id: 'i1', type: 'character', charId: 'c1', x: 100, y: 400, size: 200, aspect: 0.66 },
+        { id: 'i2"><script>', type: 'bubble', text: 'x' },
+        { id: 'b1', type: 'bubble', kind: 'speech', text: '<script>alert(1)</script>', x: 10, y: 10, w: 100, h: 50, tailTo: 'i1' },
+      ] }], texts: [] }],
+    },
+  });
+  assert.equal(ep.settings.width, 1080);
+  assert.equal(ep.settings.texture, 'clean');
+  assert.equal(ep.settings.fonts.title.family, 'Black Han Sans');
+  assert.equal(ep.settings.watermark.color, '#1b1f2a');
+  assert.equal(ep.project.characters[0].color, '#868e96');
+  assert.equal(ep.project.pages[0].panels[0].x, 0);
+  assert.equal(ep.project.pages[0].panels[0].items.length, 2, 'ID 가 이상한 항목은 버림');
+  assert.equal(sanitizeAsset({ id: 'a1', url: 'javascript:alert(1)', w: 10, h: 10 }), null);
+  assert.equal(sanitizeAsset({ id: 'a1', url: 'data:image/svg+xml;base64,PHN2Zz4=', w: 10, h: 10 }), null);
+  assert.equal(sanitizeAsset({ id: 'a1', url: `data:image/png;base64,AAAA${evil}`, w: 10, h: 10 }), null);
+  const a1 = sanitizeAsset({ id: 'a1', url: 'data:image/png;base64,iVBORw0KGgo=', w: 10, h: 10 });
+  assert.ok(a1);
+  const { inner } = renderPage(ep.project.pages[0], { project: ep.project, settings: ep.settings, assets: { a1: { ...a1, url: `data:image/png;base64,AA${evil}` } }, index: 0, total: 1, opts: { guides: true } });
+  assert.doesNotMatch(inner, /onload=|onclick=|onerror=|<script/i);
+});

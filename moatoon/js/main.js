@@ -12,6 +12,7 @@ import { textureDefs, textureFilterAttr, filterDef } from './texture.js';
 import { checkLine } from './spell.js';
 import { aiCheck, aiCharacterGuide, basicGuide, describeError } from './ai.js';
 import * as store from './store.js';
+import { sanitizeEpisode, sanitizeAsset, safeImageUrl } from './sanitize.js';
 import * as drive from './drive.js';
 import {
   buildPages, templateFromPage, applyTemplate, applyRects, blankPage, migrateProject, allTemplates, findTemplate, makeText, perPage,
@@ -176,12 +177,12 @@ function newEpisode(script, name, source) {
   if (!ep.name) ep.name = '새 회차';
   return ep;
 }
+// 저장된 회차든 남이 보낸 회차 파일이든, 열 때 모든 값을 검사한다(sanitize.js)
 function normalizeEp(ep) {
-  ep.settings = withDefaults(ep.settings);
-  ep.project = migrateProject(ep.project || { panels: [] });
-  for (const c of ep.project.characters) c.images = c.images || [];
-  for (const pg of ep.project.pages) { pg.texts = pg.texts || []; }
-  return ep;
+  const clean = sanitizeEpisode({ ...ep, project: migrateProject((ep && ep.project) || { panels: [] }) });
+  if (!clean.project.pages.length) clean.project.pages = migrateProject({ panels: [] }).pages;
+  for (const k of Object.keys(ep)) delete ep[k];
+  return Object.assign(ep, clean);
 }
 function openEpisode(ep) {
   app.ep = normalizeEp(clone(ep));
@@ -193,9 +194,14 @@ function openEpisode(ep) {
 }
 async function openEpisodeJson(json, source) {
   if (!json || json.format !== 'moatoon-episode') throw new Error('모아툰 회차 파일이 아닙니다.');
-  for (const a of Object.values(json.assets || {})) {
+  let skipped = 0;
+  for (const raw of Object.values(json.assets || {})) {
+    const a = sanitizeAsset(raw);
+    if (!a) { skipped++; continue; }
+    delete a.guide;
     if (!app.assets[a.id]) { app.assets[a.id] = a; await store.put('assets', a); }
   }
+  if (skipped) toast(`형식이 맞지 않는 이미지 ${skipped}개는 열지 않았습니다.`);
   const ep = { id: json.id || uid('ep'), name: json.name || '회차', script: json.script || '', settings: json.settings, project: json.project, source, updated: Date.now() };
   openEpisode(ep);
   save();
@@ -1168,7 +1174,7 @@ const chip = (kind, value, label, icon = '') => `<span class="chip" draggable="t
 function charIcon(c) {
   const e = (c.images || [])[0];
   const a = e && app.assets[e.assetId];
-  return a ? `<img src="${a.url}" alt="">` : `<span class="dot" style="background:${c.color}"></span>`;
+  return a ? `<img src="${safeImageUrl(a.url)}" alt="">` : `<span class="dot" style="background:${c.color}"></span>`;
 }
 
 function renderSide() {
@@ -1267,7 +1273,7 @@ function sideUpload() {
   return `<h2>업로드</h2>
     <div class="drop-zone" id="drop-zone"><span>캐릭터·배경 이미지를 여기로 끌어 오거나</span><button class="btn dark sm" data-side="pick">파일 고르기</button><span class="muted">PNG(투명 배경)를 권장합니다. 긴 변 2000px 넘으면 줄여서 저장합니다.</span></div>
     <h3>업로드한 이미지 <span class="muted">${assets.length}개</span></h3>
-    ${assets.length ? `<div class="tiles">${assets.map((a) => `<button class="tile" draggable="true" data-kind="bgasset" data-value="${a.id}" data-asset="${a.id}" title="클릭: 쓰임 정하기 · 끌기: 컷 배경으로"><img src="${a.url}" alt="${esc(a.name)}"><span class="x" data-del-asset="${a.id}" role="button" aria-label="삭제">✕</span></button>`).join('')}</div><p class="hint" style="margin-top:6px">이미지를 클릭하면 캐릭터 이미지로 등록하거나 워터마크로 쓸 수 있습니다. 컷으로 끌면 컷 배경이 됩니다.</p>` : '<p class="hint">아직 없습니다.</p>'}
+    ${assets.length ? `<div class="tiles">${assets.map((a) => `<button class="tile" draggable="true" data-kind="bgasset" data-value="${a.id}" data-asset="${a.id}" title="클릭: 쓰임 정하기 · 끌기: 컷 배경으로"><img src="${safeImageUrl(a.url)}" alt="${esc(a.name)}"><span class="x" data-del-asset="${a.id}" role="button" aria-label="삭제">✕</span></button>`).join('')}</div><p class="hint" style="margin-top:6px">이미지를 클릭하면 캐릭터 이미지로 등록하거나 워터마크로 쓸 수 있습니다. 컷으로 끌면 컷 배경이 됩니다.</p>` : '<p class="hint">아직 없습니다.</p>'}
     <div class="group"><h3>캐릭터별 이미지</h3>
     ${chars.map((c) => `<div style="margin-bottom:10px"><div class="row" style="margin-bottom:6px"><span class="chip" style="cursor:default"><span class="dot" style="background:${c.color}"></span>${esc(c.name)}</span><span class="muted">${(c.images || []).length}개</span></div>
       ${(c.images || []).length ? `<div class="tiles">${c.images.map((v) => { const a = app.assets[v.assetId]; return a ? `<button class="tile" draggable="true" data-kind="variant" data-value="${c.id}|${v.id}" title="끌어서 컷에 놓기">${iconSVG(drawImageFigure({ x: 4, y: 4, w: 92, h: 92 }, v, a, false), '0 0 100 100')}<span class="tag">${esc(v.label || EMOTIONS.find((e) => e.id === v.emotion)?.label || '')}</span><span class="x" data-del-variant="${c.id}|${v.id}" role="button" aria-label="삭제">✕</span></button>` : ''; }).join('')}</div>` : '<p class="hint">업로드한 이미지를 클릭해 등록하세요.</p>'}</div>`).join('')}</div>`;
@@ -1279,7 +1285,7 @@ function sideBackground() {
     <h3>배경 가이드 (선 그림)</h3>
     <div class="chips">${BACKGROUNDS.map((b) => chip('background', b.id, b.label)).join('')}</div>
     <h3>배경 이미지</h3>
-    ${assets.length ? `<div class="tiles">${assets.map((a) => `<button class="tile" draggable="true" data-kind="bgasset" data-value="${a.id}" title="컷으로 끌어 놓기"><img src="${a.url}" alt="${esc(a.name)}"></button>`).join('')}</div>` : '<p class="hint">업로드 탭에서 배경 이미지를 올리면 여기에 나옵니다.</p>'}
+    ${assets.length ? `<div class="tiles">${assets.map((a) => `<button class="tile" draggable="true" data-kind="bgasset" data-value="${a.id}" title="컷으로 끌어 놓기"><img src="${safeImageUrl(a.url)}" alt="${esc(a.name)}"></button>`).join('')}</div>` : '<p class="hint">업로드 탭에서 배경 이미지를 올리면 여기에 나옵니다.</p>'}
     <p class="hint" style="margin-top:8px">컷으로 끌어 놓으면 컷을 꽉 채우도록 맞춰 보이고, 원본 이미지는 바뀌지 않습니다.</p>`;
 }
 
@@ -1377,7 +1383,7 @@ function sideAi() {
   app.aiOwner = ownerId;
   const selChar = app.selected?.kind === 'item' && itemOf(app.selected.id)?.type === 'character' ? itemOf(app.selected.id) : null;
   return `<h2>AI 활용 가이드</h2>
-    <div class="tiles" style="grid-template-columns:repeat(5,1fr)">${assets.map((x) => `<button class="tile" data-ai-pick="${x.id}" style="${x.id === pick ? 'outline:2px solid var(--accent)' : ''}" aria-label="${esc(x.name)} 고르기"><img src="${x.url}" alt=""></button>`).join('')}</div>
+    <div class="tiles" style="grid-template-columns:repeat(5,1fr)">${assets.map((x) => `<button class="tile" data-ai-pick="${x.id}" style="${x.id === pick ? 'outline:2px solid var(--accent)' : ''}" aria-label="${esc(x.name)} 고르기"><img src="${safeImageUrl(x.url)}" alt=""></button>`).join('')}</div>
     <div class="kv" style="margin-top:10px"><label for="ai-owner">캐릭터</label><select id="ai-owner" data-side="ai-owner">${opt(P().characters.map((c) => ({ id: c.id, label: c.name })), ownerId)}</select><span></span></div>
     <div class="row"><button class="btn accent sm" data-side="ai-run">Claude로 분석</button><button class="btn line sm" data-side="ai-basic">기본 제안 (AI 없이)</button></div>
     ${!app.apiKey ? '<p class="hint" style="margin-top:6px">Claude 분석은 설정 탭 "AI 연결"에 API 키가 필요합니다. 기본 제안은 이미지에서 색만 뽑고 정해진 활용법을 붙입니다.</p>' : ''}
@@ -1720,7 +1726,7 @@ function assetDialog(id) {
   const a = app.assets[id];
   const chars = P().characters;
   openModal('이미지를 어디에 쓸까요?', `
-    <div class="row" style="align-items:flex-start;flex-wrap:nowrap;gap:16px"><img src="${a.url}" alt="" style="width:140px;height:140px;object-fit:contain;background:#fff;border-radius:8px">
+    <div class="row" style="align-items:flex-start;flex-wrap:nowrap;gap:16px"><img src="${safeImageUrl(a.url)}" alt="" style="width:140px;height:140px;object-fit:contain;background:#fff;border-radius:8px">
     <div style="display:grid;gap:10px;flex:1">
       <b>캐릭터 이미지로 등록</b>
       <div class="row"><select id="as-char" aria-label="캐릭터">${chars.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="__new">+ 새 캐릭터</option></select>
@@ -1950,7 +1956,7 @@ async function init() {
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal' || e.target.closest('[data-close]')) closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
   bindHome(); bindEditor(); bindCanvas(); bindToolbar(); bindSide(); bindLayers();
-  for (const a of await store.all('assets')) app.assets[a.id] = a;
+  for (const raw of await store.all('assets')) { const a = sanitizeAsset(raw); if (a) app.assets[a.id] = a; }
   app.episodes = (await store.all('episodes')).map((e) => e);
   // 예전 버전(한 페이지) 작업을 회차로 옮긴다
   const old = store.lsGet(LS.old, null);
