@@ -144,3 +144,18 @@ export async function save({ fileId, name, folderId, json }) {
   const res = await call(`${UPLOAD}/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,parents,modifiedTime`, { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body: multipart });
   return res.json();
 }
+
+// 이미지 파일 목록(폴더 + 이미지). 폴더를 안 고르면 내 드라이브 전체에서 최근 이미지
+export async function listImages(folderId) {
+  const q = folderId
+    ? `trashed = false and '${folderId}' in parents and (mimeType = '${MIME.folder}' or mimeType contains 'image/')`
+    : `trashed = false and (mimeType = '${MIME.folder}' or mimeType contains 'image/')`;
+  const params = new URLSearchParams({ q, fields: 'files(id,name,mimeType,modifiedTime,thumbnailLink,size)', orderBy: 'folder,modifiedTime desc', pageSize: '200', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' });
+  const res = await call(`${API}/files?${params}`);
+  return (await res.json()).files || [];
+}
+export async function downloadFile(file) {
+  const res = await call(`${API}/files/${file.id}?alt=media&supportsAllDrives=true`);
+  const blob = await res.blob();
+  return new File([blob], file.name, { type: file.mimeType || blob.type });
+}

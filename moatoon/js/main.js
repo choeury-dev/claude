@@ -1529,7 +1529,7 @@ function sideUpload() {
   const assets = Object.values(app.assets);
   const chars = P().characters;
   return `<h2>업로드</h2>
-    <div class="drop-zone" id="drop-zone"><span>캐릭터·배경 이미지를 여기로 끌어 오거나</span><button class="btn dark sm" data-side="pick">파일 고르기</button><span class="muted">PNG(투명 배경)를 권장합니다. 긴 변 2000px 넘으면 줄여서 저장합니다.</span></div>
+    <div class="drop-zone" id="drop-zone"><span>캐릭터·배경 이미지를 여기로 끌어 오거나</span><div class="row" style="justify-content:center"><button class="btn dark sm" data-side="pick">내 컴퓨터에서 고르기</button><button class="btn dark sm" data-side="pick-drive">Google 드라이브에서 고르기</button></div><span class="muted">PNG(투명 배경)를 권장합니다. 긴 변 2000px 넘으면 줄여서 저장합니다.</span></div>
     <h3>업로드한 이미지 <span class="muted">${assets.length}개</span></h3>
     ${assets.length ? `<div class="tiles">${assets.map((a) => `<button class="tile" draggable="true" data-kind="bgasset" data-value="${a.id}" data-asset="${a.id}" title="클릭: 쓰임 정하기 · 끌기: 컷 배경으로"><img src="${safeImageUrl(a.url)}" alt="${esc(a.name)}"><span class="x" data-del-asset="${a.id}" role="button" aria-label="삭제">✕</span></button>`).join('')}</div><p class="hint" style="margin-top:6px">이미지를 클릭하면 캐릭터 이미지로 등록하거나 워터마크로 쓸 수 있습니다. 컷으로 끌면 컷 배경이 됩니다.</p>` : '<p class="hint">아직 없습니다.</p>'}
     <div class="group"><h3>캐릭터별 이미지</h3>
@@ -1935,6 +1935,8 @@ function bindSide() {
     }
     if (act === 'register') registerLayoutDialog();
     if (act === 'pick') $('#file-image').click();
+    if (act === 'pick-drive') openDrivePicker({ multiple: true, onPick: (assets) => { renderSide(); toast(`Google 드라이브에서 이미지 ${assets.length}개를 가져왔습니다. 클릭해서 캐릭터 이미지로 등록하세요.`); } });
+    if (act === 'ie-drive') openDrivePicker({ multiple: false, onPick: (assets) => { if (assets[0]) createImagePage(assets[0].id); } });
     if (act === 'check') { renderSide(); toast('검사했습니다.'); }
     if (act === 'ai-check') runAiCheck(b);
     if (act === 'ai-run' || act === 'ai-basic') runCharGuide(act === 'ai-run', b);
@@ -2242,7 +2244,8 @@ function sideImageEdit() {
     const assets = Object.values(app.assets);
     return `<h2>그림 편집</h2>${busy}${keyBox}
       <p class="hint">완성된 웹툰 그림을 넣으면 ① 캐릭터·말풍선 영역을 고르고 ② 캐릭터를 레이어로 분리하고(뒤 배경은 AI가 채움) ③ 등록한 표정으로 바꾸거나, 캐릭터를 끌어 페이지 밖으로 빼낼 수 있습니다.</p>
-      <button class="btn accent wide" data-side="ie-upload" ${dis} style="margin-top:10px">그림 올려서 새 페이지 만들기</button>
+      <button class="btn accent wide" data-side="ie-upload" ${dis} style="margin-top:10px">내 컴퓨터에서 그림 올리기</button>
+      <button class="btn dark wide" data-side="ie-drive" ${dis} style="margin-top:6px">Google 드라이브에서 그림 고르기</button>
       ${assets.length ? `<h3>업로드한 그림으로 시작</h3><div class="tiles">${assets.map((a) => `<button class="tile" data-ie-asset="${a.id}" title="이 그림으로 새 페이지"><img src="${safeImageUrl(a.url)}" alt="${esc(a.name)}"></button>`).join('')}</div>` : ''}
       <p class="hint" style="margin-top:10px">표정 바꾸기를 쓰려면 업로드 탭에서 캐릭터별 표정 이미지(예: 감사)를 먼저 등록해 두세요.</p>`;
   }
@@ -2264,6 +2267,60 @@ function sideImageEdit() {
     <p class="hint" style="margin-top:6px">캔버스에서 레이어를 클릭하면 도구 막대에서 캐릭터를 지정하고 표정을 고를 수 있습니다. 레이어를 페이지 밖으로 끌어내면 빠집니다.</p>
     <div class="group"><h3>되돌리기</h3><button class="btn line wide" data-side="ie-reset">원본 그림으로 되돌리기</button></div>
     ${app.openaiKey ? `<div class="group"><h3>OpenAI 설정</h3>${keyRow('openai')}${openaiSettingsHTML()}</div>` : ''}`;
+}
+
+// ── Google 드라이브에서 이미지 고르기 (업로드 탭·그림 편집) ─────────────
+const picker = { path: [], files: null, sel: new Set(), busy: false, err: '' };
+function pickerHTML(opts) {
+  if (!app.google.clientId) return `<p>Google 드라이브를 쓰려면 먼저 첫 화면 <b>연결 설정</b>에 Google OAuth 클라이언트 ID를 넣어 주세요.</p>`;
+  if (!drive.isConnected()) return `<p>Google 계정으로 연결하면 드라이브의 이미지를 고를 수 있습니다.</p><div class="row"><button class="btn accent" data-pk="connect">Google 드라이브 연결</button></div>${picker.err ? `<p style="color:var(--fix)">${esc(picker.err)}</p>` : ''}`;
+  const root = { id: drive.folderIdFrom(app.google.folder) || '', name: app.google.folder ? '회차 폴더' : '내 드라이브(최근 이미지)' };
+  const crumbs = [root, ...picker.path];
+  const files = picker.files || [];
+  const folders = files.filter((f) => f.mimeType === drive.MIME.folder);
+  const imgs = files.filter((f) => f.mimeType !== drive.MIME.folder);
+  return `<div class="crumbs">${crumbs.map((c, i) => (i < crumbs.length - 1 ? `<button data-pk-crumb="${i}">${esc(c.name)}</button> ›` : `<b>${esc(c.name)}</b>`)).join(' ')}</div>
+    ${picker.err ? `<p style="color:var(--fix)">${esc(picker.err)}</p>` : ''}
+    ${picker.busy ? '<div class="empty">불러오는 중…</div>' : ''}
+    ${folders.length ? `<div class="folder-row" style="margin-bottom:10px">${folders.map((f) => `<button class="folder" data-pk-folder="${f.id}" data-name="${esc(f.name)}"><span class="fi">${ICON.folder}</span><span><b>${esc(f.name)}</b></span></button>`).join('')}</div>` : ''}
+    ${imgs.length ? `<div class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr))">${imgs.map((f) => `<button class="tile" data-pk-file="${f.id}" aria-pressed="${picker.sel.has(f.id)}" style="${picker.sel.has(f.id) ? 'outline:3px solid var(--accent)' : ''}" title="${esc(f.name)}">${f.thumbnailLink ? `<img src="${esc(f.thumbnailLink)}" alt="${esc(f.name)}" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🖼'}))">` : '🖼'}<span class="tag">${esc(f.name.slice(0, 16))}</span></button>`).join('')}</div>` : (picker.busy ? '' : '<div class="empty">이 위치에 이미지가 없습니다.</div>')}
+    <div class="row" style="margin-top:12px"><button class="btn accent" data-pk="import" ${picker.sel.size ? '' : 'disabled'}>${picker.sel.size ? `${picker.sel.size}개 가져오기` : '이미지를 고르세요'}</button><span class="hint">${opts.multiple ? '여러 개 고를 수 있습니다.' : '한 장을 고르세요.'}</span></div>`;
+}
+async function pickerList() {
+  picker.busy = true; picker.err = ''; renderPicker();
+  try {
+    const cur = picker.path.length ? picker.path[picker.path.length - 1].id : drive.folderIdFrom(app.google.folder);
+    picker.files = await drive.listImages(cur);
+  } catch (e) { picker.err = e.code === 'scope' ? '드라이브 파일 보기 권한이 없습니다. 첫 화면 Google 드라이브에서 "권한 다시 받기"를 해 주세요.' : e.code === 'api-disabled' ? 'Google Cloud 프로젝트에서 Google Drive API를 켜 주세요.' : e.message; picker.files = []; }
+  picker.busy = false; renderPicker();
+}
+let pickerOpts = null;
+function renderPicker() { const b = $('#modal-body'); if (b && !$('#modal').hidden && pickerOpts) b.innerHTML = pickerHTML(pickerOpts); }
+function openDrivePicker(opts) {
+  pickerOpts = opts; picker.sel = new Set(); picker.err = '';
+  openModal('Google 드라이브에서 이미지 고르기', pickerHTML(opts), (b) => {
+    b.addEventListener('click', async (e) => {
+      const t = e.target;
+      const act = t.closest('[data-pk]')?.dataset.pk;
+      if (act === 'connect') { try { await drive.connect(app.google.clientId); picker.path = []; await pickerList(); } catch (err) { picker.err = err.code === 'script' ? '이 화면에서는 Google 연결이 막혀 있습니다. 배포 주소에서 열어 주세요.' : err.message; renderPicker(); } return; }
+      const fo = t.closest('[data-pk-folder]'); if (fo) { picker.path.push({ id: fo.dataset.pkFolder, name: fo.dataset.name }); picker.sel = new Set(); pickerList(); return; }
+      const cr = t.closest('[data-pk-crumb]'); if (cr) { picker.path = picker.path.slice(0, Number(cr.dataset.pkCrumb)); picker.sel = new Set(); pickerList(); return; }
+      const fi = t.closest('[data-pk-file]');
+      if (fi) { const id = fi.dataset.pkFile; if (!opts.multiple) picker.sel = new Set(); if (picker.sel.has(id)) picker.sel.delete(id); else picker.sel.add(id); renderPicker(); return; }
+      if (act === 'import') {
+        const chosen = (picker.files || []).filter((f) => picker.sel.has(f.id));
+        picker.busy = true; renderPicker();
+        const added = [];
+        for (const f of chosen) {
+          try { const file = await drive.downloadFile(f); const a = await store.readImage(file, 2400); app.assets[a.id] = a; await store.put('assets', a); added.push(a); } catch (err) { toast(`${f.name}: ${err.message}`); }
+        }
+        picker.busy = false; pickerOpts = null; closeModal();
+        if (added.length) opts.onPick(added);
+      }
+    });
+  });
+  if (drive.isConnected() && !picker.files) pickerList();
+  else if (drive.isConnected()) renderPicker();
 }
 
 function setTab(tab) {
